@@ -12,6 +12,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
 import { MailModule } from './modules/mail/mail.module';
 import { UsersModule } from './modules/users/users.module';
+import { AppLoggerModule } from './shared/logger/logger.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { UsersModule } from './modules/users/users.module';
     AuthModule,
     HealthModule,
     UsersModule,
+    AppLoggerModule,
   ],
   providers: [
     {

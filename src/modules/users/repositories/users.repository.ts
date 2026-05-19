@@ -11,10 +11,12 @@ export class UsersRepository {
     return this.prisma.user.create({ data });
   }
 
-  findMany() {
+  findMany(skip = 0, take = 20) {
     return this.prisma.user.findMany({
       where: { deletedAt: null },
       orderBy: { createdAt: 'desc' },
+      skip,
+      take,
     });
   }
 

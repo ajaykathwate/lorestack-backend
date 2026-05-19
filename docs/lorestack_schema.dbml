@@ -1,0 +1,482 @@
+// ═══════════════════════════════════════════════════════════════════════
+// LORESTACK – DATABASE SCHEMA  (dbdiagram.io DBML format)
+// Source: MVP Class Diagram · Feature Specification Excel · MVP Phase Only
+//
+// Domain Entities → Tables
+// Domain Enums    → Enums
+// Interfaces / Services / Events are code-layer only — not in DB.
+//
+// Aggregate roots : blogs, companies
+// Join tables     : blog_tags
+// Value objects   : seo_metadata (its own table for SRP)
+// Redirect store  : slug_redirects (SEO 301 support)
+// ═══════════════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────────────
+
+// Blog lifecycle state machine
+// DRAFT → PUBLISHED | SCHEDULED → PUBLISHED | PUBLISHED → ARCHIVED
+// ARCHIVED → PUBLISHED (unarchive) | SCHEDULED → PUBLISH_FAILED
+enum blog_status {
+  draft
+  published
+  scheduled
+  archived
+  publish_failed
+}
+
+// Structured article types — drives discovery filters and SEO categories
+enum article_type {
+  engineering_blog
+  architecture_deep_dive
+  case_study
+  scaling_story
+  failure_postmortem
+  ai_experiment
+  founder_note
+  tutorial
+  opinion_essay
+  project_showcase
+  open_source_release
+  other
+}
+
+// Per-company role. A user can hold different roles in different companies.
+// owner: non-transferable in MVP. author: granted via accepted invite.
+enum company_role {
+  owner
+  author
+}
+
+// Platform-wide role. Only two levels in MVP.
+// platform_admin assigned manually (Supabase dashboard).
+enum platform_role {
+  user
+  platform_admin
+}
+
+// Build-in-public timeline milestone categories
+enum milestone_type {
+  launch
+  user_milestone
+  infra_update
+  funding
+  feature_release
+  bug_fixed
+  partnership
+  hiring
+  experiment
+  other
+}
+
+// Invite lifecycle — drives UI state and expiry enforcement
+enum invite_status {
+  pending
+  accepted
+  declined
+  expired
+}
+
+// Company industry category (optional, shown on company cards)
+enum industry_type {
+  ai
+  saas
+  dev_tools
+  fintech
+  health_tech
+  ed_tech
+  consumer
+  other
+}
+
+// Company growth stage (optional, shown on company profile)
+enum company_stage {
+  idea
+  mvp_stage
+  early_stage
+  growth
+  scale
+}
+
+// Discriminator for polymorphic seo_metadata and slug_redirects tables
+enum entity_type {
+  blog
+  company
+  author
+  tag
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// TABLE GROUPS (visual grouping in dbdiagram.io)
+// ─────────────────────────────────────────────────────────────────────
+
+TableGroup identity_and_auth {
+  users
+  author_profiles
+}
+
+TableGroup company_domain {
+  companies
+  company_memberships
+  company_invites
+}
+
+TableGroup content_domain {
+  blogs
+  blog_tags
+  tags
+}
+
+TableGroup timeline_domain {
+  company_milestones
+}
+
+TableGroup seo_and_routing {
+  seo_metadata
+  slug_redirects
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// IDENTITY & AUTH
+// ─────────────────────────────────────────────────────────────────────
+
+// SRP: Identity only. No display data here.
+// Managed by Supabase Auth — this mirrors the auth.users table.
+// is_active = false when Platform Admin suspends the account.
+Table users {
+  id              uuid          [pk, note: "Mirrors Supabase auth.users.id"]
+  email           varchar(320)  [not null, unique, note: "Lowercased. Max 320 chars (RFC 5321)."]
+  is_verified     boolean       [not null, default: false, note: "Flipped to true on Supabase email confirm"]
+  is_active       boolean       [not null, default: true, note: "False = suspended by Platform Admin"]
+  platform_role   platform_role [not null, default: "user"]
+  created_at      timestamptz   [not null, default: "now()"]
+
+  Note: '''
+    SRP — stores identity only.
+    Display name, bio, avatar live in author_profiles (1:1).
+    Row created by SupabaseAuthAdapter on sign-up.
+    is_active=false hides all of this user's public content.
+    platform_role=platform_admin set manually in Supabase dashboard (never via app).
+  '''
+}
+
+// Public-facing author display data. Strict 1:1 with users.
+// Created during post-registration onboarding — not at signup.
+// username drives the /author/[username] public route.
+Table author_profiles {
+  id              uuid          [pk, default: "gen_random_uuid()"]
+  user_id         uuid          [not null, unique, ref: > users.id]
+  display_name    varchar(100)  [not null]
+  username        varchar(50)   [not null, unique, note: "URL slug. Lowercase, hyphens, underscores only."]
+  bio             varchar(300)  [null]
+  avatar_url      text          [null, note: "Supabase Storage public URL. Initials avatar if null."]
+  expertise_tags  text[]        [null, note: "Free-text array. Max 10 items."]
+  twitter_handle  varchar(100)  [null]
+  linkedin_url    text          [null]
+  github_handle   varchar(100)  [null]
+  website_url     text          [null]
+  created_at      timestamptz   [not null, default: "now()"]
+  updated_at      timestamptz   [not null, default: "now()"]
+
+  Note: '''
+    Created at onboarding (2-field screen after email verification).
+    display_name pre-filled from registration full name — editable.
+    username auto-generated from display_name as lowercase-hyphenated slug.
+    Changing username fires SlugChangedEvent → slug_redirects row inserted.
+    On creation fires AuthorProfileCreatedEvent → SEO metadata generated + sitemap updated.
+  '''
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// COMPANY DOMAIN
+// ─────────────────────────────────────────────────────────────────────
+
+// Aggregate root. Any registered user can create a company.
+// Creator auto-gets a company_memberships row with role=owner.
+// handle drives /company/[handle] public route.
+Table companies {
+  id                  uuid          [pk, default: "gen_random_uuid()"]
+  created_by_user_id  uuid          [not null, ref: > users.id]
+  name                varchar(100)  [not null]
+  handle              varchar(50)   [not null, unique, note: "URL slug. Lowercase, hyphens only."]
+  tagline             varchar(160)  [not null]
+  website_url         text          [null]
+  logo_url            text          [null, note: "Supabase Storage. Falls back to initials avatar if null."]
+  cover_image_url     text          [null, note: "Recommended 1200x400px."]
+  industry            industry_type [null]
+  stage               company_stage [null]
+  tech_stack          text[]        [null, note: "e.g. ['react','postgres','kafka']. Max 20."]
+  founder_social_link text          [null, note: "Twitter/X or LinkedIn URL of the founder"]
+  is_public           boolean       [not null, default: true, note: "False = 404 on public page + removed from sitemap"]
+  created_at          timestamptz   [not null, default: "now()"]
+  updated_at          timestamptz   [not null, default: "now()"]
+
+  Note: '''
+    Aggregate root — governs memberships, invites, milestones.
+    blogs reference companies loosely (blog.company_id is nullable FK).
+    Changing handle fires SlugChangedEvent → slug_redirects row inserted.
+    On creation fires CompanyCreatedEvent → SEO metadata generated + sitemap updated.
+    A single user can own multiple companies simultaneously.
+  '''
+}
+
+// Per-company RBAC. One row per (company, user) pair.
+// A user can hold memberships in multiple companies with different roles.
+// PermissionChecker loads this table for every blog/company mutation.
+Table company_memberships {
+  id          uuid          [pk, default: "gen_random_uuid()"]
+  company_id  uuid          [not null, ref: > companies.id]
+  user_id     uuid          [not null, ref: > users.id]
+  role        company_role  [not null]
+  joined_at   timestamptz   [not null, default: "now()"]
+
+  indexes {
+    (company_id, user_id) [unique, name: "uq_company_memberships_company_user"]
+    company_id            [name: "idx_company_memberships_company"]
+    user_id               [name: "idx_company_memberships_user"]
+  }
+
+  Note: '''
+    Composite unique: one role per (company, user) pair.
+    owner row: auto-created when company is created. Non-transferable in MVP.
+    author row: created when user accepts a company_invites token.
+    Removing a member: row deleted. Their existing published blogs remain visible.
+    PermissionChecker.canEditBlog() / canManageCompany() query this table.
+  '''
+}
+
+// Models the full invite lifecycle independently from Company.
+// token is a signed secret sent via email. One-time use.
+Table company_invites {
+  id                  uuid          [pk, default: "gen_random_uuid()"]
+  company_id          uuid          [not null, ref: > companies.id]
+  invited_by_user_id  uuid          [not null, ref: > users.id]
+  invited_email       varchar(320)  [not null]
+  status              invite_status [not null, default: "pending"]
+  token               text          [not null, unique, note: "Signed JWT or crypto random. One-time use only."]
+  expires_at          timestamptz   [not null, note: "now() + 7 days at creation time"]
+  accepted_at         timestamptz   [null, note: "Populated when status transitions to accepted"]
+
+  indexes {
+    company_id                  [name: "idx_company_invites_company"]
+    token                       [name: "idx_company_invites_token"]
+    (company_id, invited_email) [name: "idx_company_invites_company_email"]
+  }
+
+  Note: '''
+    CompanyService enforces: max one pending invite per (company, email) pair.
+    On accept:
+      1. status → accepted, accepted_at = now()
+      2. company_memberships row inserted with role = author
+    Expiry enforced lazily: checked on token lookup, not by a cron job.
+    Declined: invitee clicked decline — company owner not notified (per spec).
+    invited_by_user_id must hold owner role for company_id (enforced in service).
+  '''
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// CONTENT DOMAIN
+// ─────────────────────────────────────────────────────────────────────
+
+// Aggregate root. Covers the full blog lifecycle from draft to archived.
+// company_id is nullable — independent authors publish without a company.
+Table blogs {
+  id                  uuid          [pk, default: "gen_random_uuid()"]
+  author_id           uuid          [not null, ref: > users.id]
+  company_id          uuid          [null, ref: > companies.id, note: "NULL = independent author post. No company branding."]
+  title               varchar(150)  [not null]
+  slug                varchar(200)  [not null, unique, note: "/blog/[slug] public URL"]
+  body                text          [not null, note: "Raw Markdown source"]
+  summary             varchar(300)  [null, note: "Short excerpt shown on blog cards and SEO fallback"]
+  cover_image_url     text          [null, note: "Supabase Storage. OG image auto-generated if null."]
+  og_image_url        text          [not null, note: "Always populated: uploaded cover or auto-generated brand image"]
+  article_type        article_type  [not null]
+  status              blog_status   [not null, default: "draft"]
+  published_at        timestamptz   [null, note: "Set on first publish. Shown as public publish date."]
+  scheduled_at        timestamptz   [null, note: "Only populated when status = scheduled"]
+  scheduled_timezone  varchar(100)  [null, note: "IANA tz string e.g. 'Asia/Kolkata'. Required if scheduled_at is set."]
+  seo_title_override  varchar(60)   [null, note: "Custom meta title. Falls back to title if null."]
+  seo_desc_override   varchar(160)  [null, note: "Custom meta description. Falls back to summary/body slice."]
+  created_at          timestamptz   [not null, default: "now()"]
+  updated_at          timestamptz   [not null, default: "now()"]
+
+  indexes {
+    slug                          [unique, name: "uq_blogs_slug"]
+    author_id                     [name: "idx_blogs_author"]
+    company_id                    [name: "idx_blogs_company"]
+    status                        [name: "idx_blogs_status"]
+    (status, scheduled_at)        [name: "idx_blogs_scheduled", note: "SchedulerService.findScheduledDue() query"]
+    (author_id, status)           [name: "idx_blogs_author_status"]
+    (company_id, status)          [name: "idx_blogs_company_status"]
+  }
+
+  Note: '''
+    Status machine (enforced in BlogService — not a DB trigger):
+      DRAFT       → PUBLISHED
+      DRAFT       → SCHEDULED → PUBLISHED
+      PUBLISHED   → ARCHIVED  → PUBLISHED  (unarchive allowed)
+      SCHEDULED   → PUBLISH_FAILED         (on scheduler error)
+
+    company_id = NULL: independent author blog — no company affiliation.
+    Slug changes fire SlugChangedEvent → slug_redirects row inserted.
+    Archived blogs: hidden from all public pages, tag pages, sitemap.
+      Row stays in DB — visible in author/owner dashboard with "Archived" badge.
+    Max 5 tags per blog enforced in BlogService — not a DB CHECK constraint.
+    Auto-save from editor: PATCH /blogs/:id every 30 s — no special DB logic.
+  '''
+}
+
+// Pure join table. Composite PK. Max 5 rows per blog_id (service-enforced).
+Table blog_tags {
+  blog_id   uuid  [not null, ref: > blogs.id]
+  tag_id    uuid  [not null, ref: > tags.id]
+
+  indexes {
+    (blog_id, tag_id)   [pk, name: "pk_blog_tags"]
+    tag_id              [name: "idx_blog_tags_tag"]
+  }
+
+  Note: '''
+    Maximum 5 rows per blog_id enforced in BlogService before any insert.
+    Bulk-deleted (cascade) when a blog is hard-deleted (rare — archiving is preferred).
+    IBlogTagRepository.findTagsByBlogId() → tags shown on article reading page.
+    IBlogTagRepository.findBlogsByTagSlug() → blog list on /tag/[slug] page.
+  '''
+}
+
+// Platform-wide discoverable topic entity.
+// Auto-created on first use. blog_count denormalized for performance.
+Table tags {
+  id          uuid          [pk, default: "gen_random_uuid()"]
+  name        varchar(50)   [not null, unique, note: "Display name e.g. 'React', 'PostgreSQL'"]
+  slug        varchar(60)   [not null, unique, note: "URL-safe lowercase e.g. 'react', 'postgresql'. /tag/[slug] route."]
+  description text          [null, note: "Admin-editable. Shown as header on /tag/[slug] page."]
+  blog_count  integer       [not null, default: 0, note: "Denormalized. ONLY updated via event handlers. See note."]
+  is_approved boolean       [not null, default: false, note: "False for user-created tags. Admin approves in Admin Panel."]
+  created_at  timestamptz   [not null, default: "now()"]
+
+  indexes {
+    slug        [unique, name: "uq_tags_slug"]
+    name        [unique, name: "uq_tags_name"]
+    is_approved [name: "idx_tags_approved"]
+  }
+
+  Note: '''
+    Created with is_approved=false when author types a new tag in the editor.
+    is_approved=false: tag usable immediately but hidden from tag suggestions.
+    Admin approves via Admin Panel → Tag Management (Complete Product phase).
+
+    blog_count MUST only be modified through:
+      BlogPublishedEventHandler → tagRepo.incrementBlogCount(tagId)
+      BlogArchivedEventHandler  → tagRepo.decrementBlogCount(tagId)
+    Direct SQL writes bypass event sourcing and risk count drift.
+
+    /tag/[slug] page auto-created when the first blog using this tag publishes.
+    Tag slug added to sitemap.xml by BlogPublishedEventHandler.
+  '''
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// BUILD-IN-PUBLIC TIMELINE
+// ─────────────────────────────────────────────────────────────────────
+
+// Company Owner-only entity. Drives the Timeline tab on /company/[handle].
+Table company_milestones {
+  id                  uuid            [pk, default: "gen_random_uuid()"]
+  company_id          uuid            [not null, ref: > companies.id]
+  created_by_user_id  uuid            [not null, ref: > users.id, note: "Must be company owner — enforced in MilestoneService"]
+  type                milestone_type  [not null]
+  headline            varchar(100)    [not null]
+  description         varchar(500)    [null]
+  impact_metric       varchar(80)     [null, note: "e.g. 'Reduced p99 latency 40%'. Optional highlight chip on timeline."]
+  milestone_date      date            [not null, note: "Can be past or future. UI shows soft warning; no DB block."]
+  created_at          timestamptz     [not null, default: "now()"]
+
+  indexes {
+    company_id                    [name: "idx_milestones_company"]
+    (company_id, milestone_date)  [name: "idx_milestones_company_date", note: "Ordered timeline query — DESC"]
+  }
+
+  Note: '''
+    Only Company Owner can insert — PermissionChecker.canAddMilestone() called
+    in MilestoneService before any write. Company Author cannot insert.
+    milestone_date: past or future both allowed. UI shows soft warning for future dates.
+    Public display: /company/[handle] → Timeline tab, reverse chrono, grouped by month/year.
+    Each milestone has a direct anchor: /company/[handle]#timeline-[id]
+  '''
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// SEO & ROUTING
+// ─────────────────────────────────────────────────────────────────────
+
+// Cached SEO output stored separately from domain entities (SRP).
+// Regenerated on entity publish, update, or slug/handle change.
+// entity_id + entity_type is a composite polymorphic reference.
+Table seo_metadata {
+  id                uuid          [pk, default: "gen_random_uuid()"]
+  entity_id         uuid          [not null, note: "ID of the blog / company / author_profile / tag this SEO data belongs to"]
+  entity_type       entity_type   [not null, note: "Discriminator. Together with entity_id forms polymorphic FK."]
+  meta_title        varchar(60)   [not null, note: "Google SERP title. Max 60 chars."]
+  meta_description  varchar(160)  [not null, note: "Google SERP snippet. Max 160 chars."]
+  og_image_url      text          [not null, note: "Supabase Storage URL of the generated or uploaded OG image"]
+  canonical_url     text          [not null, note: "Full absolute URL e.g. https://lorestack.com/blog/[slug]"]
+  schema_json       text          [not null, note: "JSON-LD blob: Article | Organization | Person | WebPage schema"]
+  last_generated_at timestamptz   [not null, default: "now()"]
+
+  indexes {
+    (entity_id, entity_type)  [unique, name: "uq_seo_metadata_entity"]
+    entity_type               [name: "idx_seo_metadata_type"]
+  }
+
+  Note: '''
+    Polymorphic: entity_id + entity_type uniquely identify the parent.
+    DBML does not support polymorphic FKs — uniqueness enforced at app level.
+
+    Populated by SEOService (Template Method Pattern):
+      generateForBlog()    → Article JSON-LD + author Person + publisher Org
+      generateForCompany() → Organization JSON-LD + sameAs social links
+      generateForAuthor()  → Person JSON-LD + sameAs social links
+      generateForTag()     → WebPage JSON-LD
+
+    Event-driven writes — never called directly from controllers:
+      BlogPublishedEventHandler     → generateForBlog()
+      CompanyCreatedEventHandler    → generateForCompany()
+      AuthorProfileCreatedEventHandler → generateForAuthor()
+      SlugChangedEventHandler       → updates canonical_url on slug rename
+  '''
+}
+
+// Persists 301 redirect mappings when slugs, handles, or usernames change.
+// Checked by routing middleware on every incoming HTTP request before
+// normal route matching.
+Table slug_redirects {
+  id          uuid          [pk, default: "gen_random_uuid()"]
+  from_slug   varchar(200)  [not null, note: "The old slug/handle/username that was changed"]
+  to_slug     varchar(200)  [not null, note: "The current canonical slug to 301-redirect to"]
+  entity_type entity_type   [not null, note: "Namespace: blog | company | author | tag"]
+  created_at  timestamptz   [not null, default: "now()"]
+
+  indexes {
+    (from_slug, entity_type)  [unique, name: "uq_slug_redirects_from_type"]
+    entity_type               [name: "idx_slug_redirects_type"]
+  }
+
+  Note: '''
+    Written by SlugChangedEventHandler when:
+      - blog slug changes       (entity_type = blog)
+      - company handle changes  (entity_type = company)
+      - author username changes (entity_type = author)
+
+    Read by routing middleware:
+      GET /blog/old-slug
+      → SELECT * FROM slug_redirects WHERE from_slug='old-slug' AND entity_type='blog'
+      → if found: HTTP 301 to /blog/[to_slug]
+
+    Chain redirects: if slug changes twice (A→B, then B→C), two rows exist.
+    Middleware should follow chains up to depth 3.
+    Rows are append-only — never deleted. No cascade needed.
+  '''
+}

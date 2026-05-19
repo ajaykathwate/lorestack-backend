@@ -35,6 +35,33 @@ export class MailService {
     });
   }
 
+  async sendEmail(to: string, subject: string, html: string) {
+    const from = this.configService.get<string>('mail.from');
+
+    if (!this.resend || !from) {
+      this.logger.warn(`Email skipped because Resend is not configured: ${subject}`);
+      return { skipped: true };
+    }
+
+    try {
+      const response = await this.resend.emails.send({ from, to, subject, html });
+
+      if (response.error) {
+        this.logger.error(response.error.message, JSON.stringify(response.error));
+        throw new Error(response.error.message);
+      }
+
+      this.logger.log(`Email sent: ${subject} -> ${to}`);
+      return response.data;
+    } catch (error) {
+      this.logger.error(
+        `Failed to send email: ${subject} -> ${to}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw error;
+    }
+  }
+
   async sendForgotPasswordEmail(to: string, username: string, resetUrl: string) {
     return this.sendTemplateEmail({
       to,
