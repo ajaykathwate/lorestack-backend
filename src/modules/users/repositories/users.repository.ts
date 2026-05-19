@@ -13,20 +13,21 @@ export class UsersRepository {
 
   findMany() {
     return this.prisma.user.findMany({
+      where: { deletedAt: null },
       orderBy: { createdAt: 'desc' },
     });
   }
 
   findById(id: string) {
-    return this.prisma.user.findUnique({ where: { id } });
+    return this.prisma.user.findFirst({ where: { id, deletedAt: null } });
   }
 
   findByEmail(email: string) {
-    return this.prisma.user.findUnique({ where: { email } });
+    return this.prisma.user.findFirst({ where: { email, deletedAt: null } });
   }
 
   findByUsername(username: string) {
-    return this.prisma.user.findUnique({ where: { username } });
+    return this.prisma.user.findFirst({ where: { username, deletedAt: null } });
   }
 
   update(id: string, data: Prisma.UserUpdateInput) {
@@ -37,6 +38,26 @@ export class UsersRepository {
   }
 
   delete(id: string) {
-    return this.prisma.user.delete({ where: { id } });
+    return this.prisma.user.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+  }
+
+  updatePassword(id: string, password: string) {
+    return this.prisma.user.update({
+      where: { id },
+      data: {
+        password,
+        passwordChangedAt: new Date(),
+      },
+    });
+  }
+
+  markEmailVerified(id: string) {
+    return this.prisma.user.update({
+      where: { id },
+      data: { emailVerifiedAt: new Date() },
+    });
   }
 }

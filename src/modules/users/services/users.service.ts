@@ -57,6 +57,17 @@ export class UsersService {
     return this.usersRepository.findByUsername(username);
   }
 
+  async updatePassword(id: string, password: string): Promise<UserEntity> {
+    const hashedPassword = await bcrypt.hash(password, PASSWORD_HASH_ROUNDS);
+    const user = await this.usersRepository.updatePassword(id, hashedPassword);
+    return new UserEntity(user);
+  }
+
+  async markEmailVerified(id: string): Promise<UserEntity> {
+    const user = await this.usersRepository.markEmailVerified(id);
+    return new UserEntity(user);
+  }
+
   async update(id: string, updateUserDto: UpdateUserDto): Promise<UserEntity> {
     await this.findOne(id);
 

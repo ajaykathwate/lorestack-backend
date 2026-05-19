@@ -13,6 +13,7 @@ async function main() {
       username: 'admin',
       email: 'admin@example.com',
       password,
+      emailVerifiedAt: new Date(),
     },
   });
 }
