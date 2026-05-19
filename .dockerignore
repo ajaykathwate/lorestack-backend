@@ -1,0 +1,16 @@
+.git
+.github
+.husky
+node_modules
+dist
+coverage
+.pnpm-store
+*.log
+.env
+.env.*
+!.env.example
+Dockerfile
+docker-compose.yml
+README.md
+tsconfig.build.tsbuildinfo
+.DS_Store

@@ -1,0 +1,37 @@
+services:
+  api:
+    build: .
+    container_name: lorestack-api
+    ports:
+      - '${PORT:-3000}:3000'
+    environment:
+      PORT: 3000
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/lorestack?schema=public}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production-with-at-least-32-characters}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: sh -c "pnpm prisma migrate deploy && node dist/main"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: lorestack-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: lorestack
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d lorestack']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

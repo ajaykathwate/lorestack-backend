@@ -1,0 +1,11 @@
+node_modules
+dist
+coverage
+.pnpm-store
+tsconfig.build.tsbuildinfo
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+prisma/migrations/dev.db
