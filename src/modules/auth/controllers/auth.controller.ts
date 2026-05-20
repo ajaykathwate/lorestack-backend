@@ -1,11 +1,12 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
-import { Request } from 'express';
 import { Throttle } from '@nestjs/throttler';
 
 import { CurrentUser } from '@common/decorators/current-user.decorator';
 import { Public } from '@common/decorators/public.decorator';
+import { RequestContext } from '@common/decorators/request-context.decorator';
+import { RequestContextData } from '@common/interfaces/request-context.interface';
 
 import { AuthService } from '../services/auth.service';
 import { ChangePasswordDto } from '../dto/change-password.dto';
@@ -17,7 +18,6 @@ import { RegisterDto } from '../dto/register.dto';
 import { ResendVerificationDto } from '../dto/resend-verification.dto';
 import { ResetPasswordDto } from '../dto/reset-password.dto';
 import { VerifyEmailDto } from '../dto/verify-email.dto';
-import { AuthRequestContext } from '../interfaces/auth-request-context.interface';
 import { GoogleProfile } from '../strategies/google.strategy';
 import { JwtUser } from '../types/jwt-user.type';
 
@@ -30,16 +30,19 @@ export class AuthController {
   @Public()
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOkResponse({ description: 'Sends a verification email after creating the account.' })
-  register(@Body() registerDto: RegisterDto, @Req() request: Request) {
-    return this.authService.register(registerDto, this.getContext(request));
+  register(
+    @Body() registerDto: RegisterDto,
+    @RequestContext() ctx: RequestContextData,
+  ) {
+    return this.authService.register(registerDto, ctx);
   }
 
   @Post('login')
   @Public()
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOkResponse({ description: 'Returns a JWT access token.' })
-  login(@Body() loginDto: LoginDto, @Req() request: Request) {
-    return this.authService.login(loginDto, this.getContext(request));
+  login(@Body() loginDto: LoginDto, @RequestContext() ctx: RequestContextData) {
+    return this.authService.login(loginDto, ctx);
   }
 
   @Get('google')
@@ -54,9 +57,11 @@ export class AuthController {
   @Public()
   @UseGuards(AuthGuard('google'))
   @ApiOkResponse({ description: 'Google OAuth callback — returns JWT tokens.' })
-  googleCallback(@Req() request: Request) {
-    const googleProfile = request.user as GoogleProfile;
-    return this.authService.handleGoogleCallback(googleProfile, this.getContext(request));
+  googleCallback(
+    @CurrentUser() googleProfile: GoogleProfile,
+    @RequestContext() ctx: RequestContextData,
+  ) {
+    return this.authService.handleGoogleCallback(googleProfile, ctx);
   }
 
   @Post('onboarding')
@@ -69,30 +74,39 @@ export class AuthController {
   @Post('refresh')
   @Public()
   @ApiOkResponse({ description: 'Returns a new JWT access token.' })
-  refresh(@Body() refreshTokenDto: RefreshTokenDto, @Req() request: Request) {
-    return this.authService.refresh(refreshTokenDto, this.getContext(request));
+  refresh(
+    @Body() refreshTokenDto: RefreshTokenDto,
+    @RequestContext() ctx: RequestContextData,
+  ) {
+    return this.authService.refresh(refreshTokenDto, ctx);
   }
 
   @Post('logout')
   @Public()
   @ApiOkResponse({ description: 'Revokes a refresh token.' })
-  logout(@Body() refreshTokenDto: RefreshTokenDto, @Req() request: Request) {
-    return this.authService.logout(refreshTokenDto, this.getContext(request));
+  logout(@Body() refreshTokenDto: RefreshTokenDto, @RequestContext() ctx: RequestContextData) {
+    return this.authService.logout(refreshTokenDto, ctx);
   }
 
   @Post('forgot-password')
   @Public()
   @Throttle({ default: { limit: 3, ttl: 60_000 } })
   @ApiOkResponse({ description: 'Sends password reset instructions when the account exists.' })
-  forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto, @Req() request: Request) {
-    return this.authService.forgotPassword(forgotPasswordDto.email, this.getContext(request));
+  forgotPassword(
+    @Body() forgotPasswordDto: ForgotPasswordDto,
+    @RequestContext() ctx: RequestContextData,
+  ) {
+    return this.authService.forgotPassword(forgotPasswordDto.email, ctx);
   }
 
   @Post('reset-password')
   @Public()
   @ApiOkResponse({ description: 'Resets a password using a valid reset token.' })
-  resetPassword(@Body() resetPasswordDto: ResetPasswordDto, @Req() request: Request) {
-    return this.authService.resetPassword(resetPasswordDto, this.getContext(request));
+  resetPassword(
+    @Body() resetPasswordDto: ResetPasswordDto,
+    @RequestContext() ctx: RequestContextData,
+  ) {
+    return this.authService.resetPassword(resetPasswordDto, ctx);
   }
 
   @Post('resend-verification')
@@ -101,19 +115,19 @@ export class AuthController {
   @ApiOkResponse({ description: 'Sends an email verification link when needed.' })
   resendVerification(
     @Body() resendVerificationDto: ResendVerificationDto,
-    @Req() request: Request,
+    @RequestContext() ctx: RequestContextData,
   ) {
-    return this.authService.resendVerification(
-      resendVerificationDto.identifier,
-      this.getContext(request),
-    );
+    return this.authService.resendVerification(resendVerificationDto.email, ctx);
   }
 
   @Post('verify-email')
   @Public()
   @ApiOkResponse({ description: 'Verifies an email address using a valid token.' })
-  verifyEmail(@Body() verifyEmailDto: VerifyEmailDto, @Req() request: Request) {
-    return this.authService.verifyEmail(verifyEmailDto.token, this.getContext(request));
+  verifyEmail(
+    @Body() verifyEmailDto: VerifyEmailDto,
+    @RequestContext() ctx: RequestContextData,
+  ) {
+    return this.authService.verifyEmail(verifyEmailDto.token, ctx);
   }
 
   @Post('change-password')
@@ -122,15 +136,8 @@ export class AuthController {
   changePassword(
     @CurrentUser() user: JwtUser,
     @Body() changePasswordDto: ChangePasswordDto,
-    @Req() request: Request,
+    @RequestContext() ctx: RequestContextData,
   ) {
-    return this.authService.changePassword(user.sub, changePasswordDto, this.getContext(request));
-  }
-
-  private getContext(request: Request): AuthRequestContext {
-    return {
-      ipAddress: request.ip,
-      userAgent: request.get('user-agent'),
-    };
+    return this.authService.changePassword(user.sub, changePasswordDto, ctx);
   }
 }

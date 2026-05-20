@@ -15,7 +15,7 @@ import { mapPrismaError } from '@database/prisma/prisma.exceptions';
 import { JwtUser } from '@modules/auth/types/jwt-user.type';
 import { BlogEntity } from '@modules/blogs/entities/blog.entity';
 import { BlogsRepository } from '@modules/blogs/repositories/blogs.repository';
-import { TagEntity } from '@modules/tags/entities/tag.entity';
+import { toBlogEntity } from '@modules/blogs/mappers/blog.mappers';
 import { MailService } from '@modules/mail/mail.service';
 
 import { CreateCompanyDto } from '../dto/create-company.dto';
@@ -103,10 +103,7 @@ export class CompaniesService {
     if (!company) throw new NotFoundException('Company not found.');
 
     const blogs = await this.blogsRepo.findPublishedByCompanyId(company.id);
-    return blogs.map((b) => {
-      const tags = b.tags.map((bt) => new TagEntity(bt.tag));
-      return new BlogEntity({ ...b, tags });
-    });
+    return blogs.map(toBlogEntity);
   }
 
   // ── Members ───────────────────────────────────────────────────────────────────

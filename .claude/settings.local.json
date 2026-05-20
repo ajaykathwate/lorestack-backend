@@ -11,7 +11,9 @@
       "Bash(node -e \"const { PrismaClient } = require\\('@prisma/client'\\); console.log\\(Object.keys\\(new PrismaClient\\(\\)\\)\\)\")",
       "Bash(node -e \"const p = require\\('@prisma/client'\\); console.log\\('AuthProvider:', p.AuthProvider\\); console.log\\('PlatformRole:', p.PlatformRole\\);\")",
       "Bash(pnpm build *)",
-      "Bash(pnpm run *)"
+      "Bash(pnpm run *)",
+      "Bash(del \"c:\\\\Users\\\\Ajay Kathwate\\\\Developer\\\\lorestack\\\\lorestack-backend\\\\src\\\\modules\\\\auth\\\\interfaces\\\\auth-request-context.interface.ts\")",
+      "Bash(echo \"Build exit: $?\")"
     ]
   }
 }

@@ -31,9 +31,7 @@ export class BlogSchedulerService {
           scheduledTimezone: null,
         });
 
-        for (const blogTag of blog.tags) {
-          await this.tagsRepo.incrementBlogCount(blogTag.tagId);
-        }
+        await this.tagsRepo.incrementBlogCountForMany(blog.tags.map((bt) => bt.tagId));
 
         this.logger.log(`Scheduler: published blog "${blog.slug}"`);
       } catch (error) {

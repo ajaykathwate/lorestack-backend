@@ -1,4 +1,4 @@
-export interface AuthRequestContext {
+export interface RequestContextData {
   ipAddress?: string;
   userAgent?: string;
 }

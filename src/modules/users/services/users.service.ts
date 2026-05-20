@@ -3,7 +3,6 @@ import { PlatformRole } from '@prisma/client';
 
 import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
 import { permissionChecker } from '@common/permissions/permission-checker';
-import { PrismaService } from '@database/prisma/prisma.service';
 import { mapPrismaError } from '@database/prisma/prisma.exceptions';
 
 import { UpdateUserDto } from '../dto/update-user.dto';
@@ -14,10 +13,7 @@ import { UsersRepository } from '../repositories/users.repository';
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
 
-  constructor(
-    private readonly usersRepository: UsersRepository,
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly usersRepository: UsersRepository) {}
 
   async findAll(pagination: PaginationQueryDto): Promise<UserEntity[]> {
     const skip = ((pagination.page ?? 1) - 1) * (pagination.limit ?? 20);
@@ -74,7 +70,7 @@ export class UsersService {
 
   private async audit(event: string, userId: string) {
     try {
-      await this.prisma.authAuditLog.create({ data: { event, userId } });
+      await this.usersRepository.createAuditLog(event, userId);
     } catch {
       this.logger.warn(`Failed to write audit log: ${event} for user ${userId}`);
     }

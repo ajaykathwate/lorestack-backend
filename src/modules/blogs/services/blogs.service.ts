@@ -10,16 +10,18 @@ import { BlogStatus } from '@prisma/client';
 
 import { permissionChecker } from '@common/permissions/permission-checker';
 import { mapPrismaError } from '@database/prisma/prisma.exceptions';
+import { generateUniqueSlug } from '@common/utils/slug.utils';
 import { JwtUser } from '@modules/auth/types/jwt-user.type';
 import { CompaniesRepository } from '@modules/companies/repositories/companies.repository';
-import { TagEntity } from '@modules/tags/entities/tag.entity';
 import { TagsRepository } from '@modules/tags/repositories/tags.repository';
 import { TagsService } from '@modules/tags/services/tags.service';
 
 import { CreateBlogDto } from '../dto/create-blog.dto';
 import { ScheduleBlogDto } from '../dto/schedule-blog.dto';
 import { UpdateBlogDto } from '../dto/update-blog.dto';
+import { BlogSummaryEntity } from '../entities/blog-summary.entity';
 import { BlogEntity } from '../entities/blog.entity';
+import { toBlogEntity, toBlogSummaryEntity } from '../mappers/blog.mappers';
 import { BlogWithTags, BlogsRepository } from '../repositories/blogs.repository';
 
 @Injectable()
@@ -61,7 +63,7 @@ export class BlogsService {
           create: tags.map((t) => ({ tag: { connect: { id: t.id } } })),
         },
       });
-      return this.toEntity(blog);
+      return toBlogEntity(blog);
     } catch (error) {
       mapPrismaError(error);
     }
@@ -70,7 +72,7 @@ export class BlogsService {
   async findOne(slug: string): Promise<BlogEntity> {
     const blog = await this.repo.findBySlug(slug);
     if (!blog) throw new NotFoundException('Blog not found.');
-    return this.toEntity(blog);
+    return toBlogEntity(blog);
   }
 
   async findPublic(slug: string): Promise<BlogEntity> {
@@ -78,12 +80,12 @@ export class BlogsService {
     if (!blog || blog.status !== BlogStatus.published) {
       throw new NotFoundException('Blog not found or not published.');
     }
-    return this.toEntity(blog);
+    return toBlogEntity(blog);
   }
 
-  async findMyBlogs(userId: string): Promise<BlogEntity[]> {
+  async findMyBlogs(userId: string): Promise<BlogSummaryEntity[]> {
     const blogs = await this.repo.findByAuthor(userId);
-    return blogs.map((b) => this.toEntity(b));
+    return blogs.map(toBlogSummaryEntity);
   }
 
   async update(slug: string, dto: UpdateBlogDto, requester: JwtUser): Promise<BlogEntity> {
@@ -117,7 +119,7 @@ export class BlogsService {
         ...(dto.seoTitleOverride !== undefined ? { seoTitleOverride: dto.seoTitleOverride } : {}),
         ...(dto.seoDescOverride !== undefined ? { seoDescOverride: dto.seoDescOverride } : {}),
       });
-      return this.toEntity(updated);
+      return toBlogEntity(updated);
     } catch (error) {
       mapPrismaError(error);
     }
@@ -157,12 +159,9 @@ export class BlogsService {
       scheduledTimezone: null,
     });
 
-    // Update tag counts for all attached tags
-    for (const blogTag of updated.tags) {
-      await this.tagsRepo.incrementBlogCount(blogTag.tagId);
-    }
+    await this.tagsRepo.incrementBlogCountForMany(updated.tags.map((bt) => bt.tagId));
 
-    return this.toEntity(updated);
+    return toBlogEntity(updated);
   }
 
   async schedule(slug: string, dto: ScheduleBlogDto, requester: JwtUser): Promise<BlogEntity> {
@@ -180,7 +179,7 @@ export class BlogsService {
       scheduledAt: dto.scheduledAt,
       scheduledTimezone: dto.scheduledTimezone ?? 'UTC',
     });
-    return this.toEntity(updated);
+    return toBlogEntity(updated);
   }
 
   async archive(slug: string, requester: JwtUser): Promise<BlogEntity> {
@@ -193,16 +192,14 @@ export class BlogsService {
       throw new BadRequestException('Drafts cannot be archived. Delete them instead.');
     }
 
+    const wasPublished = blog.status === BlogStatus.published;
     const updated = await this.repo.update(blog.id, { status: BlogStatus.archived });
 
-    // Decrement tag counts
-    if (blog.status === BlogStatus.published) {
-      for (const blogTag of (updated as BlogWithTags).tags) {
-        await this.tagsRepo.decrementBlogCount(blogTag.tagId);
-      }
+    if (wasPublished) {
+      await this.tagsRepo.decrementBlogCountForMany(updated.tags.map((bt) => bt.tagId));
     }
 
-    return this.toEntity(updated);
+    return toBlogEntity(updated);
   }
 
   async unarchive(slug: string, requester: JwtUser): Promise<BlogEntity> {
@@ -217,12 +214,9 @@ export class BlogsService {
       publishedAt: blog.publishedAt ?? new Date(),
     });
 
-    // Re-increment tag counts
-    for (const blogTag of (updated as BlogWithTags).tags) {
-      await this.tagsRepo.incrementBlogCount(blogTag.tagId);
-    }
+    await this.tagsRepo.incrementBlogCountForMany(updated.tags.map((bt) => bt.tagId));
 
-    return this.toEntity(updated);
+    return toBlogEntity(updated);
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -273,25 +267,11 @@ export class BlogsService {
       .replace(/^-|-$/g, '')
       .substring(0, 180);
 
-    let slug = base;
-    let attempt = 0;
-
-    while (await this.repo.slugExists(slug)) {
-      attempt++;
-      slug = `${base}-${attempt}`;
-    }
-
-    return slug;
+    return generateUniqueSlug(base, (prefix) => this.repo.findSlugsByPrefix(prefix));
   }
 
   private buildDefaultOgUrl(title: string): string {
-    // Placeholder — in production this would point to an auto-generated OG image
     const encoded = encodeURIComponent(title.substring(0, 60));
     return `https://og.lorestack.io/blog?title=${encoded}`;
-  }
-
-  private toEntity(blog: BlogWithTags): BlogEntity {
-    const tags = blog.tags.map((bt) => new TagEntity(bt.tag));
-    return new BlogEntity({ ...blog, tags });
   }
 }

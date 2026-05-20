@@ -6,5 +6,5 @@ export class ResendVerificationDto {
   @ApiProperty({ example: 'ajay@example.com' })
   @Transform(({ value }: { value: string }) => value?.toLowerCase()?.trim())
   @IsEmail()
-  identifier: string;
+  email: string;
 }

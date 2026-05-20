@@ -2,9 +2,9 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
 
 import { Public } from '@common/decorators/public.decorator';
-import { BlogEntity } from '@modules/blogs/entities/blog.entity';
+import { BlogSummaryEntity } from '@modules/blogs/entities/blog-summary.entity';
+import { toBlogSummaryEntity } from '@modules/blogs/mappers/blog.mappers';
 import { BlogsRepository } from '@modules/blogs/repositories/blogs.repository';
-import { TagEntity } from '@modules/tags/entities/tag.entity';
 
 import { ExploreQueryDto } from '../dto/explore-query.dto';
 
@@ -15,8 +15,8 @@ export class DiscoveryController {
   constructor(private readonly blogsRepo: BlogsRepository) {}
 
   @Get('explore')
-  @ApiOkResponse({ type: BlogEntity, isArray: true, description: 'Paginated published blogs with optional filters.' })
-  async explore(@Query() query: ExploreQueryDto): Promise<BlogEntity[]> {
+  @ApiOkResponse({ type: BlogSummaryEntity, isArray: true, description: 'Paginated published blogs with optional filters.' })
+  async explore(@Query() query: ExploreQueryDto): Promise<BlogSummaryEntity[]> {
     const since = this.resolveSince(query.dateRange);
     const skip = (query.page - 1) * query.limit;
 
@@ -29,10 +29,7 @@ export class DiscoveryController {
       take: query.limit,
     });
 
-    return blogs.map((b) => {
-      const tags = b.tags.map((bt) => new TagEntity(bt.tag));
-      return new BlogEntity({ ...b, tags });
-    });
+    return blogs.map(toBlogSummaryEntity);
   }
 
   private resolveSince(range?: string): Date | undefined {

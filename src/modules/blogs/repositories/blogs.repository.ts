@@ -97,6 +97,12 @@ export class BlogsRepository {
     return this.prisma.blog.findUnique({ where: { slug } }).then((b) => b !== null);
   }
 
+  findSlugsByPrefix(prefix: string): Promise<string[]> {
+    return this.prisma.blog
+      .findMany({ where: { slug: { startsWith: prefix } }, select: { slug: true } })
+      .then((rows) => rows.map((r) => r.slug));
+  }
+
   findDueScheduled(): Promise<BlogWithTags[]> {
     return this.prisma.blog.findMany({
       where: {

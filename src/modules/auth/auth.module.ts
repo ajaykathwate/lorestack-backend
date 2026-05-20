@@ -8,6 +8,7 @@ import { MailModule } from '@modules/mail/mail.module';
 
 import { AuthController } from './controllers/auth.controller';
 import { AuthService } from './services/auth.service';
+import { TokenService } from './services/token.service';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
@@ -29,7 +30,7 @@ type JwtExpiresIn = NonNullable<JwtModuleOptions['signOptions']>['expiresIn'];
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, GoogleStrategy],
+  providers: [AuthService, TokenService, JwtStrategy, GoogleStrategy],
   exports: [AuthService],
 })
 export class AuthModule {}

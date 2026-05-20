@@ -18,6 +18,7 @@ import { JwtUser } from '@modules/auth/types/jwt-user.type';
 import { CreateBlogDto } from '../dto/create-blog.dto';
 import { ScheduleBlogDto } from '../dto/schedule-blog.dto';
 import { UpdateBlogDto } from '../dto/update-blog.dto';
+import { BlogSummaryEntity } from '../entities/blog-summary.entity';
 import { BlogEntity } from '../entities/blog.entity';
 import { BlogsService } from '../services/blogs.service';
 
@@ -36,8 +37,8 @@ export class BlogsController {
   // Static routes MUST appear before /:slug to prevent shadowing
   @Get('me')
   @ApiBearerAuth()
-  @ApiOkResponse({ type: BlogEntity, isArray: true, description: "Returns the authenticated user's blogs." })
-  myBlogs(@CurrentUser() user: JwtUser): Promise<BlogEntity[]> {
+  @ApiOkResponse({ type: BlogSummaryEntity, isArray: true, description: "Returns the authenticated user's blogs (summaries, no body)." })
+  myBlogs(@CurrentUser() user: JwtUser): Promise<BlogSummaryEntity[]> {
     return this.blogsService.findMyBlogs(user.sub);
   }
 

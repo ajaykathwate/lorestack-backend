@@ -2,8 +2,8 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 
 import { mapPrismaError } from '@database/prisma/prisma.exceptions';
 import { BlogEntity } from '@modules/blogs/entities/blog.entity';
+import { toBlogEntity } from '@modules/blogs/mappers/blog.mappers';
 import { BlogsRepository } from '@modules/blogs/repositories/blogs.repository';
-import { TagEntity } from '@modules/tags/entities/tag.entity';
 
 import { UpdateAuthorProfileDto } from '../dto/update-author-profile.dto';
 import { AuthorProfileEntity } from '../entities/author-profile.entity';
@@ -37,10 +37,7 @@ export class AuthorProfilesService {
     if (!profile) throw new NotFoundException('Author profile not found.');
 
     const blogs = await this.blogsRepo.findPublishedByAuthorId(profile.userId);
-    return blogs.map((b) => {
-      const tags = b.tags.map((bt) => new TagEntity(bt.tag));
-      return new BlogEntity({ ...b, tags });
-    });
+    return blogs.map(toBlogEntity);
   }
 
   async updateMe(userId: string, dto: UpdateAuthorProfileDto): Promise<AuthorProfileEntity> {

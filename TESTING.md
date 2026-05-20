@@ -349,7 +349,7 @@ SELECT token FROM password_reset_tokens ORDER BY created_at DESC LIMIT 1;
 
 ```json
 {
-  "identifier": "ajay@example.com"
+  "email": "ajay@example.com"
 }
 ```
 
@@ -790,7 +790,8 @@ SELECT token FROM company_invites ORDER BY id DESC LIMIT 1;
 | --------------------------- | ------------------ |
 | Not owner                   | `403 Forbidden`    |
 | Pending invite exists       | `409 Conflict`     |
-| Email already a member      | _(no check yet — handled at accept time)_ |
+| Email already a member      | `409 Conflict`     |
+| Inviting yourself           | `409 Conflict`     |
 
 ---
 
@@ -1015,7 +1016,7 @@ Returns ALL of the authenticated user's blogs (drafts, published, archived, sche
 Authorization: Bearer {{access_token}}
 ```
 
-**Expected: 200** — array of blog objects ordered newest-first.
+**Expected: 200** — array of blog summary objects ordered newest-first. Summaries omit `body`, `seoTitleOverride`, and `seoDescOverride` (full content is only returned when fetching a single blog by slug).
 
 ---
 
@@ -1321,7 +1322,7 @@ GET {{base_url}}/explore?dateRange=week&type=case_study
 GET {{base_url}}/explore?companyId=some-uuid&dateRange=month
 ```
 
-**Expected: 200** — array of published blog objects with embedded tags, newest-first.
+**Expected: 200** — array of blog summary objects with embedded tags, newest-first. Summaries omit `body`, `seoTitleOverride`, and `seoDescOverride`.
 
 **Error cases**
 

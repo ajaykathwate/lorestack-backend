@@ -108,20 +108,29 @@ src/
 │
 ├── common/                    # Framework-agnostic cross-cutting concerns
 │   ├── decorators/
-│   │   ├── current-user.decorator.ts   # @CurrentUser() → JwtUser from request
-│   │   ├── public.decorator.ts         # @Public() → skip JwtAuthGuard
-│   │   └── roles.decorator.ts          # @Roles(PlatformRole.platform_admin)
+│   │   ├── current-user.decorator.ts      # @CurrentUser() → JwtUser from request
+│   │   ├── public.decorator.ts            # @Public() → skip JwtAuthGuard
+│   │   ├── request-context.decorator.ts   # @RequestContext() → { ipAddress, userAgent }
+│   │   └── roles.decorator.ts             # @Roles(PlatformRole.platform_admin)
 │   ├── guards/
-│   │   ├── jwt-auth.guard.ts           # Global guard — checks @Public() first
-│   │   └── roles.guard.ts              # Must be applied with @UseGuards() explicitly
+│   │   ├── jwt-auth.guard.ts              # Global guard — checks @Public() first
+│   │   └── roles.guard.ts                 # Must be applied with @UseGuards() explicitly
+│   ├── interfaces/
+│   │   └── request-context.interface.ts   # RequestContextData { ipAddress?, userAgent? }
 │   ├── middleware/
-│   │   └── correlation-id.middleware.ts  # Adds X-Correlation-Id to every request
+│   │   └── correlation-id.middleware.ts   # Adds X-Correlation-Id to every request
 │   ├── interceptors/
-│   │   └── transform.interceptor.ts     # Wraps all responses: { success, data, requestId }
+│   │   └── transform.interceptor.ts       # Wraps all responses: { success, data, requestId }
 │   ├── filters/
-│   │   └── http-exception.filter.ts     # Normalises all errors to { success, error, requestId }
-│   └── permissions/
-│       └── permission-checker.ts        # Single source of truth for RBAC — zero I/O
+│   │   └── http-exception.filter.ts       # Normalises all errors to { success, error, requestId }
+│   ├── permissions/
+│   │   └── permission-checker.ts          # Single source of truth for RBAC — zero I/O
+│   ├── utils/
+│   │   ├── crypto.utils.ts    # generateToken(), hashToken() — shared across auth flows
+│   │   ├── date.utils.ts      # minutesFromNow(), hoursFromNow(), daysFromNow()
+│   │   └── slug.utils.ts      # generateUniqueSlug() — single-prefix-query deduplication
+│   └── validators/
+│       └── is-future-date.validator.ts  # @IsFutureDate() — evaluates at validation time
 │
 ├── database/
 │   └── prisma/
@@ -134,9 +143,17 @@ src/
 │
 └── modules/
     ├── auth/                  # Registration, login, OAuth, token lifecycle
+    │   └── services/
+    │       ├── auth.service.ts    # Business logic — login, register, OAuth, password flows
+    │       └── token.service.ts   # Token lifecycle — JWT signing, refresh token CRUD
     ├── users/                 # Admin-only user management
     ├── author-profiles/       # Public profile pages + profile editing
     ├── blogs/                 # Blog CRUD, status machine, scheduler
+    │   ├── entities/
+    │   │   ├── blog.entity.ts          # Full entity — includes body, returned on single-blog fetches
+    │   │   └── blog-summary.entity.ts  # Summary — omits body/SEO fields, used in list endpoints
+    │   └── mappers/
+    │       └── blog.mappers.ts         # toBlogEntity(), toBlogSummaryEntity() — single mapping source
     ├── companies/             # Company CRUD, memberships, invites, milestones
     ├── tags/                  # Tag system + admin approval
     ├── discovery/             # Public explore page
@@ -324,7 +341,20 @@ LoginAttempt table (one row per identifier, keyed by SHA-256(email.toLowerCase()
 - Successful login → row deleted (not just counter reset)
 ```
 
-### 6.7 Auth Audit Log
+### 6.7 TokenService
+
+`AuthService` delegates all token mechanics to `TokenService` (SRP separation):
+
+| `AuthService` responsibility | `TokenService` responsibility |
+|---|---|
+| Login flow, lockout, audit logging | JWT signing via `JwtService` |
+| Registration, password reset | Refresh token creation (`issueRefreshToken`) |
+| Google OAuth, email verification | Refresh token rotation (`rotateRefreshToken`) |
+| Onboarding | Refresh token revocation (`revokeByHash`, `revokeAllForUser`) |
+
+This means `AuthService` never imports `JwtService` directly — it calls `tokenService.createAuthTokens(user)` and gets back `{ accessToken, refreshToken, tokenType, expiresIn }`.
+
+### 6.8 Auth Audit Log
 
 Every significant auth event is recorded in `auth_audit_logs`:
 
@@ -921,7 +951,7 @@ These are documented decisions, not deficiencies. Each has a recommended upgrade
 
 ### 18.4 `tag.blogCount` Synchronous Denormalisation
 
-**Current:** `blogCount` is updated in-process, synchronously, in `BlogsService` and `BlogSchedulerService`.  
+**Current:** `blogCount` is updated in-process, synchronously, in `BlogsService` and `BlogSchedulerService`. Tag count updates use `updateMany` (bulk) via `incrementBlogCountForMany` / `decrementBlogCountForMany` in `TagsRepository` — no N+1 loop.  
 **Risk:** Any code path that bypasses these (e.g. direct DB writes, a missed `archive` code path) causes count drift.  
 **Fix for Phase 2:** Event-driven handlers + a periodic reconciliation job (`SELECT COUNT(*) FROM blog_tags GROUP BY tagId`).
 
@@ -935,11 +965,9 @@ These are documented decisions, not deficiencies. Each has a recommended upgrade
 **Current:** Expired refresh tokens accumulate in `refresh_tokens` indefinitely.  
 **Fix for Phase 2:** A nightly cron that `DELETE FROM refresh_tokens WHERE expiresAt < now() - interval '7 days'`.
 
-### 18.7 `@MinDate(new Date())` in `ScheduleBlogDto`
+### 18.7 ~~`@MinDate(new Date())` in `ScheduleBlogDto`~~
 
-**Current:** The minimum date validator on `scheduledAt` captures `new Date()` at class-load time, not per-request.  
-**Impact:** Minimal in practice (class is loaded seconds after boot), but technically incorrect.  
-**Fix:** Use a custom validator that calls `new Date()` at validation time.
+**Resolved.** Replaced with `@IsFutureDate()` custom validator in `src/common/validators/is-future-date.validator.ts`. The validator calls `new Date()` at validation time, not class-load time.
 
 ---
 

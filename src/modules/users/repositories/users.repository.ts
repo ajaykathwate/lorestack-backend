@@ -45,4 +45,8 @@ export class UsersRepository {
       data: { isEmailVerified: true },
     });
   }
+
+  createAuditLog(event: string, userId: string) {
+    return this.prisma.authAuditLog.create({ data: { event, userId } });
+  }
 }

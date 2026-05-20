@@ -1,7 +1,3 @@
-import { PlatformRole } from '@prisma/client';
+import { TokenPayload } from '../interfaces/token-payload.interface';
 
-export type JwtUser = {
-  sub: string;
-  email: string;
-  platformRole: PlatformRole;
-};
+export type JwtUser = TokenPayload;

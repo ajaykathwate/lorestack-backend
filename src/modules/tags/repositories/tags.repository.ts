@@ -49,6 +49,22 @@ export class TagsRepository {
     });
   }
 
+  incrementBlogCountForMany(tagIds: string[]) {
+    if (!tagIds.length) return Promise.resolve({ count: 0 });
+    return this.prisma.tag.updateMany({
+      where: { id: { in: tagIds } },
+      data: { blogCount: { increment: 1 } },
+    });
+  }
+
+  decrementBlogCountForMany(tagIds: string[]) {
+    if (!tagIds.length) return Promise.resolve({ count: 0 });
+    return this.prisma.tag.updateMany({
+      where: { id: { in: tagIds } },
+      data: { blogCount: { decrement: 1 } },
+    });
+  }
+
   approve(id: string) {
     return this.prisma.tag.update({ where: { id }, data: { isApproved: true } });
   }

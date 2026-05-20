@@ -13,9 +13,18 @@ export interface GoogleProfile {
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
   constructor(configService: ConfigService) {
+    const clientID = configService.get<string>('auth.googleClientId');
+    const clientSecret = configService.get<string>('auth.googleClientSecret');
+
+    if (!clientID || !clientSecret) {
+      throw new Error(
+        'Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.',
+      );
+    }
+
     super({
-      clientID: configService.get<string>('auth.googleClientId') ?? '',
-      clientSecret: configService.get<string>('auth.googleClientSecret') ?? '',
+      clientID,
+      clientSecret,
       callbackURL: configService.get<string>('auth.googleCallbackUrl'),
       scope: ['email', 'profile'],
     });

@@ -8,12 +8,14 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
 import { AuthProvider } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import { createHash, randomBytes } from 'crypto';
 
 import { PrismaService } from '@database/prisma/prisma.service';
+import { RequestContextData } from '@common/interfaces/request-context.interface';
+import { hashToken, generateToken } from '@common/utils/crypto.utils';
+import { minutesFromNow, hoursFromNow } from '@common/utils/date.utils';
+import { generateUniqueSlug } from '@common/utils/slug.utils';
 import { MailService } from '@modules/mail/mail.service';
 
 import { ChangePasswordDto } from '../dto/change-password.dto';
@@ -22,9 +24,8 @@ import { OnboardingDto } from '../dto/onboarding.dto';
 import { RefreshTokenDto } from '../dto/refresh-token.dto';
 import { RegisterDto } from '../dto/register.dto';
 import { ResetPasswordDto } from '../dto/reset-password.dto';
-import { TokenPayload } from '../interfaces/token-payload.interface';
-import { AuthRequestContext } from '../interfaces/auth-request-context.interface';
 import { GoogleProfile } from '../strategies/google.strategy';
+import { TokenService } from './token.service';
 
 @Injectable()
 export class AuthService {
@@ -37,13 +38,13 @@ export class AuthService {
   }
 
   constructor(
-    private readonly jwtService: JwtService,
+    private readonly tokenService: TokenService,
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
     private readonly mailService: MailService,
   ) {}
 
-  async register(dto: RegisterDto, context: AuthRequestContext = {}) {
+  async register(dto: RegisterDto, context: RequestContextData = {}) {
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (existing) {
       throw new ConflictException('An account with this email already exists.');
@@ -60,7 +61,7 @@ export class AuthService {
     return { message: 'Check your inbox to verify your email.' };
   }
 
-  async login(loginDto: LoginDto, context: AuthRequestContext = {}) {
+  async login(loginDto: LoginDto, context: RequestContextData = {}) {
     await this.assertLoginAllowed(loginDto.email);
 
     const user = await this.prisma.user.findUnique({ where: { email: loginDto.email } });
@@ -96,10 +97,10 @@ export class AuthService {
     await this.resetLoginAttempt(loginDto.email);
     await this.audit('login_success', user.id, context);
 
-    return this.createAuthResponse(user);
+    return this.tokenService.createAuthTokens(user);
   }
 
-  async handleGoogleCallback(googleProfile: GoogleProfile, context: AuthRequestContext = {}) {
+  async handleGoogleCallback(googleProfile: GoogleProfile, context: RequestContextData = {}) {
     let user = await this.prisma.user.findUnique({ where: { email: googleProfile.email } });
 
     if (user && user.deletedAt) {
@@ -131,7 +132,7 @@ export class AuthService {
     }
 
     const hasProfile = await this.prisma.authorProfile.findUnique({ where: { userId: user.id } });
-    const authResponse = await this.createAuthResponse(user);
+    const authResponse = await this.tokenService.createAuthTokens(user);
 
     return { ...authResponse, onboardingRequired: !hasProfile };
   }
@@ -156,22 +157,16 @@ export class AuthService {
     return profile;
   }
 
-  async refresh(refreshTokenDto: RefreshTokenDto, context: AuthRequestContext = {}) {
-    const tokenHash = this.hashToken(refreshTokenDto.refreshToken);
-    const storedToken = await this.prisma.refreshToken.findUnique({
-      where: { tokenHash },
-      include: { user: true },
-    });
+  async refresh(refreshTokenDto: RefreshTokenDto, context: RequestContextData = {}) {
+    const tokenHash = hashToken(refreshTokenDto.refreshToken);
+    const storedToken = await this.tokenService.findByHash(tokenHash);
 
     if (!storedToken) {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
     if (storedToken.revokedAt) {
-      await this.prisma.refreshToken.updateMany({
-        where: { userId: storedToken.userId, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
+      await this.tokenService.revokeAllForUser(storedToken.userId);
       await this.audit('refresh_token_reuse_detected', storedToken.userId, context);
       throw new UnauthorizedException('Invalid refresh token');
     }
@@ -180,48 +175,42 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    const newRefreshToken = await this.createRefreshToken(storedToken.userId);
-    await this.prisma.refreshToken.update({
-      where: { id: storedToken.id },
-      data: { revokedAt: new Date(), replacedBy: this.hashToken(newRefreshToken) },
-    });
+    const newRefreshToken = await this.tokenService.rotateRefreshToken(
+      storedToken.id,
+      storedToken.userId,
+    );
 
     await this.audit('refresh_token_rotated', storedToken.userId, context);
 
-    const payload = this.createPayload(storedToken.user);
+    const payload = this.tokenService.buildPayload(storedToken.user);
 
     return {
-      accessToken: await this.jwtService.signAsync(payload),
+      accessToken: await this.tokenService.signAsync(payload),
       refreshToken: newRefreshToken,
       tokenType: 'Bearer',
       expiresIn: this.configService.get<string>('auth.jwtExpiresIn'),
     };
   }
 
-  async logout(refreshTokenDto: RefreshTokenDto, context: AuthRequestContext = {}) {
-    await this.prisma.refreshToken.updateMany({
-      where: { tokenHash: this.hashToken(refreshTokenDto.refreshToken), revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
-
+  async logout(refreshTokenDto: RefreshTokenDto, context: RequestContextData = {}) {
+    await this.tokenService.revokeByHash(hashToken(refreshTokenDto.refreshToken));
     await this.audit('logout', undefined, context);
-
     return { message: 'Logged out successfully' };
   }
 
-  async forgotPassword(email: string, context: AuthRequestContext = {}) {
+  async forgotPassword(email: string, context: RequestContextData = {}) {
     const user = await this.prisma.user.findUnique({ where: { email } });
 
     if (user && user.provider === AuthProvider.LOCAL && !user.deletedAt) {
-      const token = this.generateToken();
+      const token = generateToken();
       const resetUrl = this.buildAppUrl('/reset-password', token);
       const displayName = await this.getDisplayName(user.id, user.email);
 
       await this.prisma.passwordResetToken.create({
         data: {
-          tokenHash: this.hashToken(token),
+          tokenHash: hashToken(token),
           userId: user.id,
-          expiresAt: this.minutesFromNow(60),
+          expiresAt: minutesFromNow(60),
         },
       });
 
@@ -232,8 +221,8 @@ export class AuthService {
     return { message: 'If the account exists, password reset instructions will be sent.' };
   }
 
-  async resetPassword(resetPasswordDto: ResetPasswordDto, context: AuthRequestContext = {}) {
-    const tokenHash = this.hashToken(resetPasswordDto.token);
+  async resetPassword(resetPasswordDto: ResetPasswordDto, context: RequestContextData = {}) {
+    const tokenHash = hashToken(resetPasswordDto.token);
     const storedToken = await this.prisma.passwordResetToken.findUnique({
       where: { tokenHash },
       include: { user: true },
@@ -258,12 +247,9 @@ export class AuthService {
         where: { id: storedToken.id },
         data: { usedAt: new Date() },
       }),
-      this.prisma.refreshToken.updateMany({
-        where: { userId: storedToken.userId, revokedAt: null },
-        data: { revokedAt: new Date() },
-      }),
     ]);
 
+    await this.tokenService.revokeAllForUser(storedToken.userId);
     await this.audit('password_reset_completed', storedToken.userId, context);
 
     return { message: 'Password reset successfully' };
@@ -272,7 +258,7 @@ export class AuthService {
   async changePassword(
     userId: string,
     changePasswordDto: ChangePasswordDto,
-    context: AuthRequestContext = {},
+    context: RequestContextData = {},
   ) {
     const user = await this.prisma.user.findFirst({ where: { id: userId, isActive: true } });
 
@@ -290,23 +276,18 @@ export class AuthService {
 
     const password = await bcrypt.hash(changePasswordDto.newPassword, this.passwordHashRounds);
 
-    await this.prisma.$transaction([
-      this.prisma.user.update({
-        where: { id: userId },
-        data: { password, passwordChangedAt: new Date() },
-      }),
-      this.prisma.refreshToken.updateMany({
-        where: { userId, revokedAt: null },
-        data: { revokedAt: new Date() },
-      }),
-    ]);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password, passwordChangedAt: new Date() },
+    });
 
+    await this.tokenService.revokeAllForUser(userId);
     await this.audit('password_changed', userId, context);
 
     return { message: 'Password changed successfully. Please sign in again.' };
   }
 
-  async resendVerification(email: string, context: AuthRequestContext = {}) {
+  async resendVerification(email: string, context: RequestContextData = {}) {
     const user = await this.prisma.user.findUnique({ where: { email } });
 
     if (user && !user.isEmailVerified && user.provider === AuthProvider.LOCAL && !user.deletedAt) {
@@ -318,8 +299,8 @@ export class AuthService {
     return { message: 'If the account requires verification, an email will be sent.' };
   }
 
-  async verifyEmail(token: string, context: AuthRequestContext = {}) {
-    const tokenHash = this.hashToken(token);
+  async verifyEmail(token: string, context: RequestContextData = {}) {
+    const tokenHash = hashToken(token);
     const storedToken = await this.prisma.emailVerificationToken.findUnique({
       where: { tokenHash },
       include: { user: true },
@@ -348,51 +329,20 @@ export class AuthService {
     return { message: 'Email verified successfully' };
   }
 
-  private async createAuthResponse(user: {
-    id: string;
-    email: string;
-    platformRole: import('@prisma/client').PlatformRole;
-  }) {
-    const payload = this.createPayload(user);
-    const refreshToken = await this.createRefreshToken(user.id);
-
-    return {
-      accessToken: await this.jwtService.signAsync(payload),
-      refreshToken,
-      tokenType: 'Bearer',
-      expiresIn: this.configService.get<string>('auth.jwtExpiresIn'),
-    };
-  }
-
   private async sendVerificationEmail(userId: string, email: string, displayName: string) {
-    const token = this.generateToken();
+    const token = generateToken();
     const verificationUrl = this.buildAppUrl('/verify-email', token);
 
     await this.prisma.emailVerificationToken.create({
-      data: { tokenHash: this.hashToken(token), userId, expiresAt: this.hoursFromNow(24) },
+      data: { tokenHash: hashToken(token), userId, expiresAt: hoursFromNow(24) },
     });
 
     await this.mailService.sendVerifyEmail(email, displayName, verificationUrl);
   }
 
-  private async createRefreshToken(userId: string) {
-    const token = this.generateToken();
-    const expiresInDays = this.configService.get<number>('auth.jwtRefreshExpiresInDays', 7);
-
-    await this.prisma.refreshToken.create({
-      data: {
-        tokenHash: this.hashToken(token),
-        userId,
-        expiresAt: this.daysFromNow(expiresInDays),
-      },
-    });
-
-    return token;
-  }
-
   private async assertLoginAllowed(email: string) {
     const attempt = await this.prisma.loginAttempt.findUnique({
-      where: { identifierHash: this.hashToken(email.toLowerCase()) },
+      where: { identifierHash: hashToken(email.toLowerCase()) },
     });
 
     if (attempt?.lockedUntil && attempt.lockedUntil > new Date()) {
@@ -404,7 +354,7 @@ export class AuthService {
   }
 
   private async recordFailedLogin(email: string) {
-    const identifierHash = this.hashToken(email.toLowerCase());
+    const identifierHash = hashToken(email.toLowerCase());
     const existing = await this.prisma.loginAttempt.findUnique({ where: { identifierHash } });
     const failedCount = (existing?.failedCount ?? 0) + 1;
 
@@ -416,21 +366,23 @@ export class AuthService {
         lastFailedAt: new Date(),
         lockedUntil:
           failedCount >= this.maxFailedLoginAttempts
-            ? this.minutesFromNow(this.lockMinutes)
+            ? minutesFromNow(this.lockMinutes)
             : undefined,
       },
       update: {
         failedCount,
         lastFailedAt: new Date(),
         lockedUntil:
-          failedCount >= this.maxFailedLoginAttempts ? this.minutesFromNow(this.lockMinutes) : null,
+          failedCount >= this.maxFailedLoginAttempts
+            ? minutesFromNow(this.lockMinutes)
+            : null,
       },
     });
   }
 
   private async resetLoginAttempt(email: string) {
     await this.prisma.loginAttempt.deleteMany({
-      where: { identifierHash: this.hashToken(email.toLowerCase()) },
+      where: { identifierHash: hashToken(email.toLowerCase()) },
     });
   }
 
@@ -442,15 +394,13 @@ export class AuthService {
       .replace(/\s+/g, '-')
       .slice(0, 45);
 
-    let candidate = base;
-    let suffix = 0;
-
-    while (true) {
-      const exists = await this.prisma.authorProfile.findUnique({ where: { username: candidate } });
-      if (!exists) return candidate;
-      suffix += 1;
-      candidate = `${base}-${suffix}`;
-    }
+    return generateUniqueSlug(base, async (prefix) => {
+      const rows = await this.prisma.authorProfile.findMany({
+        where: { username: { startsWith: prefix } },
+        select: { username: true },
+      });
+      return rows.map((r) => r.username);
+    });
   }
 
   private async getDisplayName(userId: string, emailFallback: string): Promise<string> {
@@ -461,7 +411,7 @@ export class AuthService {
   private async audit(
     event: string,
     userId?: string,
-    context: AuthRequestContext = {},
+    context: RequestContextData = {},
     metadata?: Record<string, string>,
   ) {
     try {
@@ -479,38 +429,10 @@ export class AuthService {
     }
   }
 
-  private createPayload(user: {
-    id: string;
-    email: string;
-    platformRole: import('@prisma/client').PlatformRole;
-  }): TokenPayload {
-    return { sub: user.id, email: user.email, platformRole: user.platformRole };
-  }
-
-  private generateToken() {
-    return randomBytes(32).toString('base64url');
-  }
-
-  private hashToken(token: string) {
-    return createHash('sha256').update(token).digest('hex');
-  }
-
   private buildAppUrl(path: string, token: string) {
     const baseUrl = this.configService.get<string>('mail.appBaseUrl', 'http://localhost:3000');
     const url = new URL(path, baseUrl);
     url.searchParams.set('token', token);
     return url.toString();
-  }
-
-  private minutesFromNow(minutes: number) {
-    return new Date(Date.now() + minutes * 60 * 1000);
-  }
-
-  private hoursFromNow(hours: number) {
-    return new Date(Date.now() + hours * 60 * 60 * 1000);
-  }
-
-  private daysFromNow(days: number) {
-    return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
   }
 }
