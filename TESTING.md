@@ -1,6 +1,6 @@
 # API Testing Guide — Postman
 
-Base URL: `http://localhost:3000`  
+Base URL: `http://localhost:3001`  
 All endpoints are versioned under `/api/v1/`.
 
 ---
@@ -11,13 +11,18 @@ All endpoints are versioned under `/api/v1/`.
 
 Create a Postman environment called **Lorestack Local** with these variables:
 
-| Variable        | Initial Value                  | Description                   |
-| --------------- | ------------------------------ | ----------------------------- |
-| `base_url`      | `http://localhost:3000/api/v1` | Base URL                      |
-| `access_token`  | _(empty)_                      | Set automatically after login |
-| `refresh_token` | _(empty)_                      | Set automatically after login |
-| `user_id`       | _(empty)_                      | Set after login or register   |
-| `admin_token`   | _(empty)_                      | Set after logging in as admin |
+| Variable         | Initial Value                   | Description                        |
+| ---------------- | ------------------------------- | ---------------------------------- |
+| `base_url`       | `http://localhost:3001/api/v1`  | Base URL                           |
+| `access_token`   | _(empty)_                       | Set automatically after login      |
+| `refresh_token`  | _(empty)_                       | Set automatically after login      |
+| `user_id`        | _(empty)_                       | Set after login or register        |
+| `admin_token`    | _(empty)_                       | Set after logging in as admin      |
+| `company_handle` | _(empty)_                       | Set after creating a company       |
+| `company_id`     | _(empty)_                       | Set after creating a company       |
+| `blog_slug`      | _(empty)_                       | Set after creating a blog          |
+| `blog_id`        | _(empty)_                       | Set after creating a blog          |
+| `invite_token`   | _(empty)_                       | Set from DB after sending an invite|
 
 ### Auto-capture tokens (Login test script)
 
@@ -31,13 +36,33 @@ if (res.data?.accessToken) {
 }
 ```
 
+Auto-capture company after creation (add to **Tests** tab of `POST /companies`):
+
+```javascript
+const res = pm.response.json();
+if (res.data?.handle) {
+  pm.environment.set('company_handle', res.data.handle);
+  pm.environment.set('company_id', res.data.id);
+}
+```
+
+Auto-capture blog after creation (add to **Tests** tab of `POST /blogs`):
+
+```javascript
+const res = pm.response.json();
+if (res.data?.slug) {
+  pm.environment.set('blog_slug', res.data.slug);
+  pm.environment.set('blog_id', res.data.id);
+}
+```
+
 ---
 
 ## Auth Endpoints
 
 ### 1. Register
 
-**`POST /api/v1/auth/register`**
+**`POST {{base_url}}/auth/register`**
 
 No auth required.
 
@@ -81,14 +106,12 @@ Content-Type: application/json
 
 ### 2. Verify Email
 
-**`POST /api/v1/auth/verify-email`**
+**`POST {{base_url}}/auth/verify-email`**
 
-No auth required. Token comes from the email link — check server logs or the `email_verification_tokens` table in dev.
+No auth required. Token comes from the email link — check server logs or query:
 
-**Headers**
-
-```
-Content-Type: application/json
+```sql
+SELECT token FROM email_verification_tokens ORDER BY created_at DESC LIMIT 1;
 ```
 
 **Body**
@@ -121,15 +144,9 @@ Content-Type: application/json
 
 ### 3. Login
 
-**`POST /api/v1/auth/login`**
+**`POST {{base_url}}/auth/login`**
 
 No auth required.
-
-**Headers**
-
-```
-Content-Type: application/json
-```
 
 **Body**
 
@@ -171,23 +188,23 @@ Add the test script from Setup to auto-capture tokens.
 
 ### 4. Google OAuth
 
-**`GET /api/v1/auth/google`**
+**`GET {{base_url}}/auth/google`**
 
-Open this URL directly in a browser — Postman cannot handle the OAuth redirect flow.
+Open this URL in a browser — Postman cannot handle the OAuth redirect.
 
 ```
-http://localhost:3000/api/v1/auth/google
+http://localhost:3001/api/v1/auth/google
 ```
 
-Google will redirect to the callback URL. On success the callback returns the same token shape as login. The callback URL (`/api/v1/auth/google/callback`) is handled automatically by Passport — do not call it manually.
+Google redirects to the callback which returns the same token shape as login. The callback URL is handled automatically by Passport — do not call it manually.
 
 ---
 
 ### 5. Onboarding (Create Author Profile)
 
-**`POST /api/v1/auth/onboarding`**
+**`POST {{base_url}}/auth/onboarding`**
 
-Requires JWT. Must be called after email verification. Can only be completed once per account.
+Requires JWT. Call after email verification. Can only be completed once.
 
 **Headers**
 
@@ -196,15 +213,7 @@ Content-Type: application/json
 Authorization: Bearer {{access_token}}
 ```
 
-**Body — minimal**
-
-```json
-{
-  "displayName": "Ajay Kathwate"
-}
-```
-
-**Body — with avatar**
+**Body**
 
 ```json
 {
@@ -212,6 +221,8 @@ Authorization: Bearer {{access_token}}
   "avatarUrl": "https://example.com/avatar.png"
 }
 ```
+
+`avatarUrl` is optional. `displayName` is required (min 2 chars).
 
 **Expected: 201**
 
@@ -230,7 +241,7 @@ Authorization: Bearer {{access_token}}
 }
 ```
 
-Note: `username` is auto-generated from `displayName` (lowercased, hyphenated). If `"ajay-kathwate"` is taken, it becomes `"ajay-kathwate-1"`.
+`username` is auto-generated from `displayName` (lowercased, hyphenated). Collisions append `-1`, `-2`.
 
 **Error cases**
 
@@ -239,21 +250,12 @@ Note: `username` is auto-generated from `displayName` (lowercased, hyphenated). 
 | No auth header          | `401 Unauthorized` |
 | Already onboarded       | `409 Conflict`     |
 | `displayName` < 2 chars | `400 Bad Request`  |
-| `avatarUrl` not a URL   | `400 Bad Request`  |
 
 ---
 
 ### 6. Refresh Token
 
-**`POST /api/v1/auth/refresh`**
-
-No auth header needed — the refresh token itself is the credential.
-
-**Headers**
-
-```
-Content-Type: application/json
-```
+**`POST {{base_url}}/auth/refresh`**
 
 **Body**
 
@@ -263,42 +265,21 @@ Content-Type: application/json
 }
 ```
 
-**Expected: 200**
-
-```json
-{
-  "data": {
-    "accessToken": "eyJ...",
-    "refreshToken": "eyJ...",
-    "tokenType": "Bearer",
-    "expiresIn": 900
-  }
-}
-```
-
-Note: refresh token rotation is active — each successful refresh invalidates the old token and issues a new one. Update `{{refresh_token}}` in your env after each refresh.
+**Expected: 200** — new access + refresh token pair. Update `{{refresh_token}}` in env after each refresh (rotation is active).
 
 **Error cases**
 
-| Scenario                       | Expected                                                                             |
-| ------------------------------ | ------------------------------------------------------------------------------------ |
-| Invalid/garbage token          | `401 Unauthorized`                                                                   |
-| Reused (already-rotated) token | `401 Unauthorized` — reuse detection triggers revocation of all tokens for that user |
-| Expired token                  | `401 Unauthorized`                                                                   |
+| Scenario                       | Expected                                                   |
+| ------------------------------ | ---------------------------------------------------------- |
+| Reused token                   | `401` — triggers revocation of ALL tokens for that user    |
+| Expired token                  | `401 Unauthorized`                                         |
+| Garbage token                  | `401 Unauthorized`                                         |
 
 ---
 
 ### 7. Logout
 
-**`POST /api/v1/auth/logout`**
-
-No auth header required. Pass the refresh token to revoke it.
-
-**Headers**
-
-```
-Content-Type: application/json
-```
+**`POST {{base_url}}/auth/logout`**
 
 **Body**
 
@@ -308,31 +289,13 @@ Content-Type: application/json
 }
 ```
 
-**Expected: 200**
-
-```json
-{
-  "data": {
-    "message": "Logged out successfully."
-  }
-}
-```
-
-Note: passing an already-revoked or unknown token still returns `200` — this is intentional (no information leakage).
+**Expected: 200** — always succeeds even if token is already revoked (no information leakage).
 
 ---
 
 ### 8. Forgot Password
 
-**`POST /api/v1/auth/forgot-password`**
-
-No auth required.
-
-**Headers**
-
-```
-Content-Type: application/json
-```
+**`POST {{base_url}}/auth/forgot-password`**
 
 **Body**
 
@@ -342,39 +305,19 @@ Content-Type: application/json
 }
 ```
 
-**Expected: 200** (same response regardless of whether the email exists)
+**Expected: 200** — same response regardless of whether the email exists (anti-enumeration).
 
-```json
-{
-  "data": {
-    "message": "If the account exists, a reset link has been sent."
-  }
-}
+Token valid for 60 minutes. Find it with:
+
+```sql
+SELECT token FROM password_reset_tokens ORDER BY created_at DESC LIMIT 1;
 ```
-
-The reset link is valid for **60 minutes**. Check server logs or the `password_reset_tokens` table for the token in dev.
-
-**Error cases**
-
-| Scenario             | Expected                                  |
-| -------------------- | ----------------------------------------- |
-| Invalid email format | `400 Bad Request`                         |
-| Rate limited         | `429` after 3 requests/60s                |
-| Google-only account  | `200` generic response (anti-enumeration) |
 
 ---
 
 ### 9. Reset Password
 
-**`POST /api/v1/auth/reset-password`**
-
-No auth required. Token comes from the reset email link.
-
-**Headers**
-
-```
-Content-Type: application/json
-```
+**`POST {{base_url}}/auth/reset-password`**
 
 **Body**
 
@@ -385,17 +328,7 @@ Content-Type: application/json
 }
 ```
 
-**Expected: 200**
-
-```json
-{
-  "data": {
-    "message": "Password reset successfully. Please log in again."
-  }
-}
-```
-
-Note: all existing refresh tokens for the user are revoked on success.
+**Expected: 200** — all existing refresh tokens are revoked on success.
 
 **Error cases**
 
@@ -404,22 +337,13 @@ Note: all existing refresh tokens for the user are revoked on success.
 | Expired token          | `401 Unauthorized` |
 | Already-used token     | `401 Unauthorized` |
 | Password < 8 chars     | `400 Bad Request`  |
-| Password has no number | `400 Bad Request`  |
 | Google-only account    | `400 Bad Request`  |
 
 ---
 
 ### 10. Resend Verification Email
 
-**`POST /api/v1/auth/resend-verification`**
-
-No auth required.
-
-**Headers**
-
-```
-Content-Type: application/json
-```
+**`POST {{base_url}}/auth/resend-verification`**
 
 **Body**
 
@@ -429,31 +353,13 @@ Content-Type: application/json
 }
 ```
 
-**Expected: 200** (same response regardless of whether email exists)
-
-```json
-{
-  "data": {
-    "message": "If the account exists and is not yet verified, a new link has been sent."
-  }
-}
-```
-
-**Error cases**
-
-| Scenario             | Expected                   |
-| -------------------- | -------------------------- |
-| Invalid email format | `400 Bad Request`          |
-| Rate limited         | `429` after 3 requests/60s |
-| Already verified     | `200` generic response     |
+**Expected: 200** — same response regardless of email existence. Rate limited to 3/60s.
 
 ---
 
 ### 11. Change Password
 
-**`POST /api/v1/auth/change-password`**
-
-Requires JWT.
+**`POST {{base_url}}/auth/change-password`**
 
 **Headers**
 
@@ -471,37 +377,15 @@ Authorization: Bearer {{access_token}}
 }
 ```
 
-**Expected: 200**
-
-```json
-{
-  "data": {
-    "message": "Password changed successfully."
-  }
-}
-```
-
-Note: all existing refresh tokens are revoked on success.
-
-**Error cases**
-
-| Scenario                    | Expected           |
-| --------------------------- | ------------------ |
-| No auth header              | `401 Unauthorized` |
-| Wrong `currentPassword`     | `401 Unauthorized` |
-| `newPassword` < 8 chars     | `400 Bad Request`  |
-| `newPassword` has no number | `400 Bad Request`  |
-| Google-only account         | `400 Bad Request`  |
+**Expected: 200** — all refresh tokens revoked on success.
 
 ---
 
 ## Users Endpoints
 
-All users endpoints require a valid JWT except where noted.
-
 ### 12. Get Current User (Me)
 
-**`GET /api/v1/users/me`**
+**`GET {{base_url}}/users/me`**
 
 **Headers**
 
@@ -525,20 +409,13 @@ Authorization: Bearer {{access_token}}
 }
 ```
 
-Note: `password`, `providerId`, `deletedAt`, `passwordChangedAt` are never returned.
-
-**Error cases**
-
-| Scenario       | Expected           |
-| -------------- | ------------------ |
-| No auth header | `401 Unauthorized` |
-| Expired token  | `401 Unauthorized` |
+`password`, `providerId`, `deletedAt`, `passwordChangedAt` are never returned.
 
 ---
 
 ### 13. Get User by ID
 
-**`GET /api/v1/users/:id`**
+**`GET {{base_url}}/users/:id`**
 
 **Headers**
 
@@ -546,19 +423,10 @@ Note: `password`, `providerId`, `deletedAt`, `passwordChangedAt` are never retur
 Authorization: Bearer {{access_token}}
 ```
 
-**Example**
-
-```
-GET /api/v1/users/550e8400-e29b-41d4-a716-446655440000
-```
-
-**Expected: 200** — same shape as `/users/me`
-
 **Error cases**
 
 | Scenario       | Expected           |
 | -------------- | ------------------ |
-| No auth header | `401 Unauthorized` |
 | Unknown UUID   | `404 Not Found`    |
 | Non-UUID param | `400 Bad Request`  |
 
@@ -566,9 +434,9 @@ GET /api/v1/users/550e8400-e29b-41d4-a716-446655440000
 
 ### 14. List All Users (Admin only)
 
-**`GET /api/v1/users`**
+**`GET {{base_url}}/users?page=1&limit=20`**
 
-Requires `platform_admin` role. Regular users get `403`.
+Requires `platform_admin` role — regular users get `403`.
 
 **Headers**
 
@@ -576,50 +444,13 @@ Requires `platform_admin` role. Regular users get `403`.
 Authorization: Bearer {{admin_token}}
 ```
 
-**Query params (all optional)**
-
-```
-?page=1&limit=20
-```
-
-**Expected: 200**
-
-```json
-{
-  "data": [
-    {
-      "id": "uuid",
-      "email": "...",
-      "platformRole": "user",
-      ...
-    }
-  ]
-}
-```
-
-**Error cases**
-
-| Scenario           | Expected           |
-| ------------------ | ------------------ |
-| Regular user token | `403 Forbidden`    |
-| No auth            | `401 Unauthorized` |
-| `page=0`           | `400 Bad Request`  |
-| `limit=101`        | `400 Bad Request`  |
-
 ---
 
 ### 15. Update User
 
-**`PATCH /api/v1/users/:id`**
+**`PATCH {{base_url}}/users/:id`**
 
-Users can update their own account. Platform admins can update any account.
-
-**Headers**
-
-```
-Content-Type: application/json
-Authorization: Bearer {{access_token}}
-```
+Users can update their own account only. Platform admins can update any.
 
 **Body**
 
@@ -629,40 +460,26 @@ Authorization: Bearer {{access_token}}
 }
 ```
 
-**Expected: 200** — updated user object
-
 **Error cases**
 
 | Scenario                        | Expected           |
 | ------------------------------- | ------------------ |
-| No auth                         | `401 Unauthorized` |
 | Updating another user's account | `403 Forbidden`    |
 | Email already taken             | `409 Conflict`     |
-| Invalid email format            | `400 Bad Request`  |
 
 ---
 
-### 16. Delete (Soft-delete) User
+### 16. Delete User
 
-**`DELETE /api/v1/users/:id`**
+**`DELETE {{base_url}}/users/:id`**
 
-Users can delete their own account. Platform admins can delete any account. This is a soft-delete — the row is not removed, `deletedAt` is set.
-
-**Headers**
-
-```
-Authorization: Bearer {{access_token}}
-```
-
-**Expected: 200** — the deleted user object (with `deletedAt` populated)
+Soft-delete — `deletedAt` is set, row is not removed.
 
 **Error cases**
 
 | Scenario                        | Expected           |
 | ------------------------------- | ------------------ |
-| No auth                         | `401 Unauthorized` |
 | Deleting another user's account | `403 Forbidden`    |
-| Non-UUID param                  | `400 Bad Request`  |
 
 ---
 
@@ -670,9 +487,7 @@ Authorization: Bearer {{access_token}}
 
 ### 17. Get Own Profile
 
-**`GET /api/v1/author-profiles/me`**
-
-Requires JWT. Returns 404 if onboarding has not been completed yet.
+**`GET {{base_url}}/author-profiles/me`**
 
 **Headers**
 
@@ -680,35 +495,13 @@ Requires JWT. Returns 404 if onboarding has not been completed yet.
 Authorization: Bearer {{access_token}}
 ```
 
-**Expected: 200**
-
-```json
-{
-  "data": {
-    "id": "uuid",
-    "userId": "uuid",
-    "displayName": "Ajay Kathwate",
-    "username": "ajay-kathwate",
-    "bio": null,
-    "avatarUrl": null,
-    "expertiseTags": [],
-    "twitterHandle": null,
-    "linkedinUrl": null,
-    "githubHandle": null,
-    "websiteUrl": null,
-    "createdAt": "2026-05-20T...",
-    "updatedAt": "2026-05-20T..."
-  }
-}
-```
+Returns `404` if onboarding has not been completed.
 
 ---
 
 ### 18. Update Own Profile
 
-**`PATCH /api/v1/author-profiles/me`**
-
-Requires JWT. All fields are optional — send only what you want to change.
+**`PATCH {{base_url}}/author-profiles/me`**
 
 **Headers**
 
@@ -733,42 +526,854 @@ Authorization: Bearer {{access_token}}
 }
 ```
 
-**Body — partial update**
-
-```json
-{
-  "bio": "Updated bio only."
-}
-```
-
-**Expected: 200** — updated profile object
+All fields are optional — send only what you want to change.
 
 **Error cases**
 
-| Scenario                                     | Expected           |
-| -------------------------------------------- | ------------------ |
-| No auth                                      | `401 Unauthorized` |
-| Username already taken                       | `409 Conflict`     |
-| Username with invalid chars (e.g. uppercase) | `400 Bad Request`  |
-| `bio` > 300 chars                            | `400 Bad Request`  |
-| `avatarUrl` not a valid URL                  | `400 Bad Request`  |
-| `linkedinUrl` not a valid URL                | `400 Bad Request`  |
+| Scenario                     | Expected           |
+| ---------------------------- | ------------------ |
+| Username already taken       | `409 Conflict`     |
+| `bio` > 300 chars            | `400 Bad Request`  |
 
 ---
 
 ### 19. Get Profile by Username (Public)
 
-**`GET /api/v1/author-profiles/:username`**
+**`GET {{base_url}}/author-profiles/:username`**
 
 No auth required.
 
-**Example**
-
 ```
-GET /api/v1/author-profiles/ajay-kathwate
+GET {{base_url}}/author-profiles/ajay-kathwate
 ```
 
-**Expected: 200** — same shape as `/author-profiles/me`
+---
+
+## Companies Endpoints
+
+All write endpoints require JWT unless marked public.
+
+### 20. Create Company
+
+**`POST {{base_url}}/companies`**
+
+Any authenticated user can create a company. Creator is automatically made Owner.
+
+**Headers**
+
+```
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+```
+
+**Body — minimal**
+
+```json
+{
+  "name": "Acme Corp",
+  "handle": "acme-corp",
+  "tagline": "Building the future of developer tooling"
+}
+```
+
+**Body — full**
+
+```json
+{
+  "name": "Acme Corp",
+  "handle": "acme-corp",
+  "tagline": "Building the future of developer tooling",
+  "websiteUrl": "https://acme.com",
+  "logoUrl": "https://cdn.example.com/logo.png",
+  "coverImageUrl": "https://cdn.example.com/cover.png",
+  "industry": "dev_tools",
+  "stage": "early_stage",
+  "techStack": ["TypeScript", "NestJS", "PostgreSQL"],
+  "founderSocialLink": "https://twitter.com/founder",
+  "isPublic": true
+}
+```
+
+**Expected: 201**
+
+```json
+{
+  "data": {
+    "id": "uuid",
+    "createdByUserId": "uuid",
+    "name": "Acme Corp",
+    "handle": "acme-corp",
+    "tagline": "Building the future of developer tooling",
+    "industry": "dev_tools",
+    "stage": "early_stage",
+    "techStack": ["TypeScript", "NestJS", "PostgreSQL"],
+    "isPublic": true,
+    "createdAt": "2026-05-20T...",
+    "updatedAt": "2026-05-20T..."
+  }
+}
+```
+
+**Error cases**
+
+| Scenario             | Change                           | Expected           |
+| -------------------- | -------------------------------- | ------------------ |
+| Handle taken         | Duplicate handle                 | `409 Conflict`     |
+| Invalid handle chars | `"handle": "Acme Corp"`          | `400 Bad Request`  |
+| Handle too short     | `"handle": "a"`                  | `400 Bad Request`  |
+| Missing name         | Remove `name`                    | `400 Bad Request`  |
+| Missing tagline      | Remove `tagline`                 | `400 Bad Request`  |
+| Not authenticated    | No auth header                   | `401 Unauthorized` |
+| Invalid industry     | `"industry": "invalid_value"`    | `400 Bad Request`  |
+
+---
+
+### 21. Get My Companies
+
+**`GET {{base_url}}/companies/mine`**
+
+Returns all companies the authenticated user is a member of (any role).
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200**
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "handle": "acme-corp",
+      "name": "Acme Corp",
+      ...
+    }
+  ]
+}
+```
+
+---
+
+### 22. Get Company by Handle (Public)
+
+**`GET {{base_url}}/companies/:handle`**
+
+No auth required.
+
+```
+GET {{base_url}}/companies/acme-corp
+```
+
+**Error cases**
+
+| Scenario           | Expected        |
+| ------------------ | --------------- |
+| Handle not found   | `404 Not Found` |
+
+---
+
+### 23. Update Company
+
+**`PATCH {{base_url}}/companies/:handle`**
+
+Requires Owner role or Platform Admin. Company Authors get `403`.
+
+**Headers**
+
+```
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+```
+
+**Body — partial update**
+
+```json
+{
+  "tagline": "New tagline here",
+  "stage": "growth",
+  "techStack": ["TypeScript", "NestJS", "Redis"]
+}
+```
+
+Note: `handle` cannot be changed via this endpoint (omitted from `UpdateCompanyDto`).
+
+**Error cases**
+
+| Scenario            | Expected           |
+| ------------------- | ------------------ |
+| Not owner           | `403 Forbidden`    |
+| Company not found   | `404 Not Found`    |
+
+---
+
+### 24. Get Company Members (Public)
+
+**`GET {{base_url}}/companies/:handle/members`**
+
+No auth required. Returns members with denormalized profile data.
+
+**Expected: 200**
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "userId": "uuid",
+      "role": "owner",
+      "joinedAt": "2026-05-20T...",
+      "displayName": "Ajay Kathwate",
+      "username": "ajay-kathwate",
+      "avatarUrl": null
+    }
+  ]
+}
+```
+
+---
+
+### 25. Remove Member
+
+**`DELETE {{base_url}}/companies/:handle/members/:userId`**
+
+Requires Owner role. Returns `204 No Content` on success.
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Error cases**
+
+| Scenario                     | Expected                |
+| ---------------------------- | ----------------------- |
+| Not owner                    | `403 Forbidden`         |
+| Member not in company        | `404 Not Found`         |
+| Removing original creator    | `400 Bad Request`       |
+
+---
+
+### 26. Invite Author
+
+**`POST {{base_url}}/companies/:handle/invites`**
+
+Requires Owner role. Sends an invite email and creates a `CompanyInvite` row. Returns `204 No Content`.
+
+**Headers**
+
+```
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+```
+
+**Body**
+
+```json
+{
+  "email": "newauthor@example.com"
+}
+```
+
+Find the invite token in the DB to use in the next two endpoints:
+
+```sql
+SELECT token FROM company_invites ORDER BY id DESC LIMIT 1;
+```
+
+**Error cases**
+
+| Scenario                    | Expected           |
+| --------------------------- | ------------------ |
+| Not owner                   | `403 Forbidden`    |
+| Pending invite exists       | `409 Conflict`     |
+| Email already a member      | _(no check yet — handled at accept time)_ |
+
+---
+
+### 27. Accept Invite
+
+**`POST {{base_url}}/companies/invites/:token/accept`**
+
+Requires JWT. The authenticated user's email must match the invite's `invitedEmail`. Creates a `CompanyMembership(author)` row.
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200** — returns the company object.
+
+**Error cases**
+
+| Scenario                 | Expected           |
+| ------------------------ | ------------------ |
+| Token not found          | `404 Not Found`    |
+| Token expired (> 7 days) | `400 Bad Request`  |
+| Email mismatch           | `403 Forbidden`    |
+| Already accepted/declined| `400 Bad Request`  |
+
+---
+
+### 28. Decline Invite
+
+**`POST {{base_url}}/companies/invites/:token/decline`**
+
+Requires JWT. Returns `204 No Content`.
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Error cases**
+
+| Scenario                 | Expected          |
+| ------------------------ | ----------------- |
+| Token expired            | `400 Bad Request` |
+| Email mismatch           | `403 Forbidden`   |
+| Already used             | `400 Bad Request` |
+
+---
+
+### 29. Add Milestone
+
+**`POST {{base_url}}/companies/:handle/milestones`**
+
+Requires Owner role.
+
+**Headers**
+
+```
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+```
+
+**Body — minimal**
+
+```json
+{
+  "type": "launch",
+  "headline": "Launched public beta",
+  "milestoneDate": "2026-03-15"
+}
+```
+
+**Body — full**
+
+```json
+{
+  "type": "user_milestone",
+  "headline": "Reached 10,000 users",
+  "description": "Organic growth from Product Hunt launch. Zero paid ads.",
+  "impactMetric": "10k active users",
+  "milestoneDate": "2026-04-01"
+}
+```
+
+Valid `type` values: `launch`, `user_milestone`, `infra_update`, `funding`, `feature_release`, `bug_fixed`, `partnership`, `hiring`, `experiment`, `other`
+
+**Expected: 201**
+
+```json
+{
+  "data": {
+    "id": "uuid",
+    "companyId": "uuid",
+    "type": "user_milestone",
+    "headline": "Reached 10,000 users",
+    "impactMetric": "10k active users",
+    "milestoneDate": "2026-04-01T00:00:00.000Z",
+    "createdAt": "2026-05-20T..."
+  }
+}
+```
+
+**Error cases**
+
+| Scenario             | Expected           |
+| -------------------- | ------------------ |
+| Not owner            | `403 Forbidden`    |
+| Missing `headline`   | `400 Bad Request`  |
+| Missing `type`       | `400 Bad Request`  |
+| Invalid `type`       | `400 Bad Request`  |
+| `headline` > 100 chars | `400 Bad Request` |
+
+---
+
+### 30. Get Milestones (Public)
+
+**`GET {{base_url}}/companies/:handle/milestones`**
+
+No auth required. Returns milestones newest-first.
+
+```
+GET {{base_url}}/companies/acme-corp/milestones
+```
+
+---
+
+## Blogs Endpoints
+
+### 31. Create Draft Blog
+
+**`POST {{base_url}}/blogs`**
+
+**Headers**
+
+```
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+```
+
+**Body — minimal (draft)**
+
+```json
+{
+  "title": "How We Scaled to 100k Users",
+  "articleType": "scaling_story"
+}
+```
+
+**Body — full**
+
+```json
+{
+  "title": "How We Scaled to 100k Users",
+  "body": "# Introduction\n\nWe started with a monolith...",
+  "articleType": "scaling_story",
+  "companyId": "{{company_id}}",
+  "summary": "A story about scaling our SaaS from zero to 100k.",
+  "coverImageUrl": "https://cdn.example.com/cover.png",
+  "seoTitleOverride": "Scaling to 100k Users | Acme Blog",
+  "seoDescOverride": "Learn how we scaled our infrastructure step by step.",
+  "tags": ["TypeScript", "NestJS", "Scaling"]
+}
+```
+
+Valid `articleType` values: `engineering_blog`, `architecture_deep_dive`, `case_study`, `scaling_story`, `failure_postmortem`, `ai_experiment`, `founder_note`, `tutorial`, `opinion_essay`, `project_showcase`, `open_source_release`, `other`
+
+**Expected: 201**
+
+```json
+{
+  "data": {
+    "id": "uuid",
+    "authorId": "uuid",
+    "companyId": "uuid",
+    "title": "How We Scaled to 100k Users",
+    "slug": "how-we-scaled-to-100k-users",
+    "body": "...",
+    "articleType": "scaling_story",
+    "status": "draft",
+    "publishedAt": null,
+    "scheduledAt": null,
+    "tags": [
+      { "id": "uuid", "name": "TypeScript", "slug": "typescript", "isApproved": false }
+    ],
+    "createdAt": "2026-05-20T...",
+    "updatedAt": "2026-05-20T..."
+  }
+}
+```
+
+Slug is auto-generated from the title (lowercase-hyphenated). Collisions append `-2`, `-3`.  
+New tag names are created as `isApproved: false`.
+
+**Error cases**
+
+| Scenario                        | Expected           |
+| ------------------------------- | ------------------ |
+| Missing `title`                 | `400 Bad Request`  |
+| Missing `articleType`           | `400 Bad Request`  |
+| Invalid `articleType`           | `400 Bad Request`  |
+| `title` > 150 chars             | `400 Bad Request`  |
+| `summary` > 300 chars           | `400 Bad Request`  |
+| `seoTitleOverride` > 60 chars   | `400 Bad Request`  |
+| `seoDescOverride` > 160 chars   | `400 Bad Request`  |
+| More than 5 tags                | `400 Bad Request`  |
+| `companyId` not a member of     | `403 Forbidden`    |
+| `companyId` not found           | `404 Not Found`    |
+| Not authenticated               | `401 Unauthorized` |
+
+---
+
+### 32. Get My Blogs
+
+**`GET {{base_url}}/blogs/me`**
+
+Returns ALL of the authenticated user's blogs (drafts, published, archived, scheduled).
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200** — array of blog objects ordered newest-first.
+
+---
+
+### 33. Get Published Blog by Slug (Public)
+
+**`GET {{base_url}}/blogs/:slug`**
+
+No auth required. Only returns blogs with `status: "published"`.
+
+```
+GET {{base_url}}/blogs/how-we-scaled-to-100k-users
+```
+
+**Error cases**
+
+| Scenario                    | Expected        |
+| --------------------------- | --------------- |
+| Slug not found              | `404 Not Found` |
+| Blog exists but not published | `404 Not Found` |
+
+---
+
+### 34. Update Blog
+
+**`PATCH {{base_url}}/blogs/:slug`**
+
+Blog author or company owner can edit. All fields are optional.
+
+**Headers**
+
+```
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+```
+
+**Body**
+
+```json
+{
+  "title": "Updated Title",
+  "body": "# Updated content\n\nNew body here...",
+  "summary": "Updated summary.",
+  "tags": ["TypeScript", "PostgreSQL"]
+}
+```
+
+Note: if `title` changes on a **draft**, the slug is also regenerated. Published blog slugs do not change on title edit (to preserve URLs).
+
+**Error cases**
+
+| Scenario                        | Expected           |
+| ------------------------------- | ------------------ |
+| Not author or company owner     | `403 Forbidden`    |
+| Blog not found                  | `404 Not Found`    |
+| More than 5 tags                | `400 Bad Request`  |
+
+---
+
+### 35. Delete Draft Blog
+
+**`DELETE {{base_url}}/blogs/:slug`**
+
+Permanent deletion. Only the author can delete. Only drafts can be deleted (published/archived blogs must be archived via `POST /:slug/archive`).
+
+Returns `204 No Content`.
+
+**Error cases**
+
+| Scenario                        | Expected           |
+| ------------------------------- | ------------------ |
+| Not author                      | `403 Forbidden`    |
+| Blog not in draft status        | `400 Bad Request`  |
+
+---
+
+### 36. Publish Blog
+
+**`POST {{base_url}}/blogs/:slug/publish`**
+
+Transitions `draft` or `scheduled` → `published`. Sets `publishedAt` to now. Increments `blogCount` on all attached tags.
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200** — blog with `"status": "published"` and `publishedAt` set.
+
+**Error cases**
+
+| Scenario                      | Expected           |
+| ----------------------------- | ------------------ |
+| Blog already published        | `400 Bad Request`  |
+| Blog has no title             | `400 Bad Request`  |
+| Not author or company owner   | `403 Forbidden`    |
+
+---
+
+### 37. Schedule Blog
+
+**`POST {{base_url}}/blogs/:slug/schedule`**
+
+Sets blog to `scheduled` status with a future publish datetime.
+
+**Headers**
+
+```
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+```
+
+**Body**
+
+```json
+{
+  "scheduledAt": "2026-07-01T09:00:00.000Z",
+  "scheduledTimezone": "Asia/Kolkata"
+}
+```
+
+`scheduledAt` must be in the future. `scheduledTimezone` defaults to `UTC` if omitted.
+
+**Expected: 200** — blog with `"status": "scheduled"` and `scheduledAt` set.
+
+**Error cases**
+
+| Scenario                      | Expected           |
+| ----------------------------- | ------------------ |
+| `scheduledAt` in the past     | `400 Bad Request`  |
+| Blog already published        | `400 Bad Request`  |
+| Blog has no title             | `400 Bad Request`  |
+| Not author or company owner   | `403 Forbidden`    |
+
+---
+
+### 38. Archive Blog
+
+**`POST {{base_url}}/blogs/:slug/archive`**
+
+Hides the blog from all public endpoints. Author or company owner can archive. Decrements `blogCount` on tags if blog was `published`.
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200** — blog with `"status": "archived"`.
+
+**Error cases**
+
+| Scenario                    | Expected           |
+| --------------------------- | ------------------ |
+| Blog already archived       | `400 Bad Request`  |
+| Blog is a draft             | `400 Bad Request`  |
+| Not author or company owner | `403 Forbidden`    |
+
+---
+
+### 39. Unarchive Blog
+
+**`POST {{base_url}}/blogs/:slug/unarchive`**
+
+Restores archived blog back to `published`. Re-increments tag `blogCount`.
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200** — blog with `"status": "published"`.
+
+**Error cases**
+
+| Scenario            | Expected           |
+| ------------------- | ------------------ |
+| Blog not archived   | `400 Bad Request`  |
+| Not author or owner | `403 Forbidden`    |
+
+---
+
+## Tags Endpoints
+
+All tags endpoints are public (no auth required).
+
+### 40. List Approved Tags
+
+**`GET {{base_url}}/tags`**
+
+Returns all approved tags ordered by `blogCount` descending. Use for the tag autocomplete in the blog editor.
+
+**Expected: 200**
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "name": "TypeScript",
+      "slug": "typescript",
+      "description": null,
+      "blogCount": 42,
+      "isApproved": true,
+      "createdAt": "2026-05-20T..."
+    }
+  ]
+}
+```
+
+---
+
+### 41. Get Tag by Slug
+
+**`GET {{base_url}}/tags/:slug`**
+
+```
+GET {{base_url}}/tags/typescript
+```
+
+**Error cases**
+
+| Scenario       | Expected        |
+| -------------- | --------------- |
+| Slug not found | `404 Not Found` |
+
+---
+
+### 42. Approve Tag (Admin only)
+
+**`POST {{base_url}}/tags/:id/approve`**
+
+Requires `platform_admin` role. Marks a tag as approved so it appears in the `GET /tags` autocomplete for blog editors.
+
+New tags created inline by authors have `isApproved: false` and are hidden from autocomplete until approved here.
+
+**Headers**
+
+```
+Authorization: Bearer {{admin_token}}
+```
+
+**Path param:** the tag's UUID (get from `GET /tags` response or DB query below)
+
+```sql
+SELECT id, name, is_approved FROM tags ORDER BY created_at DESC;
+```
+
+**Expected: 200**
+
+```json
+{
+  "data": {
+    "id": "uuid",
+    "name": "TypeScript",
+    "slug": "typescript",
+    "blogCount": 3,
+    "isApproved": true,
+    "createdAt": "2026-05-20T..."
+  }
+}
+```
+
+**Error cases**
+
+| Scenario           | Expected           |
+| ------------------ | ------------------ |
+| Regular user token | `403 Forbidden`    |
+| No auth            | `401 Unauthorized` |
+| Invalid UUID param | `400 Bad Request`  |
+| Tag not found      | `404 Not Found`    |
+
+---
+
+## Discovery Endpoints
+
+All discovery endpoints are public (no auth required).
+
+### 43. Explore — Browse All Published Blogs
+
+**`GET {{base_url}}/explore`**
+
+Filterable, paginated listing of all published blogs.
+
+**Query params (all optional)**
+
+| Param       | Type     | Values                                  | Example              |
+| ----------- | -------- | --------------------------------------- | -------------------- |
+| `type`      | enum     | Any `ArticleType` value                 | `?type=tutorial`     |
+| `tag`       | string   | Tag slug                                | `?tag=typescript`    |
+| `companyId` | UUID     | Company UUID                            | `?companyId=uuid`    |
+| `dateRange` | string   | `week`, `month`, `6months`, `all`       | `?dateRange=month`   |
+| `page`      | number   | Default `1`                             | `?page=2`            |
+| `limit`     | number   | Default `20`, max `50`                  | `?limit=10`          |
+
+**Example requests**
+
+```
+GET {{base_url}}/explore
+GET {{base_url}}/explore?type=tutorial&tag=typescript&page=1&limit=10
+GET {{base_url}}/explore?dateRange=week&type=case_study
+GET {{base_url}}/explore?companyId=some-uuid&dateRange=month
+```
+
+**Expected: 200** — array of published blog objects with embedded tags, newest-first.
+
+**Error cases**
+
+| Scenario                  | Expected          |
+| ------------------------- | ----------------- |
+| Invalid `type` enum value | `400 Bad Request` |
+| Invalid `companyId` UUID  | `400 Bad Request` |
+| `limit` > 50              | `400 Bad Request` |
+
+---
+
+### 44. Trending Tags
+
+**`GET {{base_url}}/tags/trending`**
+
+Returns top 10 approved tags by `blogCount`. Use for homepage tag pills.
+
+**Expected: 200** — array of up to 10 tag objects.
+
+---
+
+## Author Published Blogs Endpoint
+
+### 45. Get Author's Published Blogs (Public)
+
+**`GET {{base_url}}/author-profiles/:username/blogs`**
+
+No auth required. Returns all published (non-archived) blogs for the given author, newest first. Used to populate the blog list on the public `/author/[username]` page.
+
+```
+GET {{base_url}}/author-profiles/ajay-kathwate/blogs
+```
+
+**Expected: 200** — array of blog objects with embedded tags.
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "authorId": "uuid",
+      "title": "How We Scaled to 100k Users",
+      "slug": "how-we-scaled-to-100k-users",
+      "articleType": "scaling_story",
+      "status": "published",
+      "publishedAt": "2026-05-20T...",
+      "tags": [{ "name": "TypeScript", "slug": "typescript" }],
+      ...
+    }
+  ]
+}
+```
 
 **Error cases**
 
@@ -778,81 +1383,172 @@ GET /api/v1/author-profiles/ajay-kathwate
 
 ---
 
+## Company Published Blogs Endpoint
+
+### 46. Get Company's Published Blogs (Public)
+
+**`GET {{base_url}}/companies/:handle/blogs`**
+
+No auth required. Returns all published (non-archived) blogs under the company, newest first. Used to populate the **Blogs tab** on the public `/company/[handle]` page.
+
+```
+GET {{base_url}}/companies/acme-corp/blogs
+```
+
+**Expected: 200** — array of blog objects with embedded tags.
+
+**Error cases**
+
+| Scenario           | Expected        |
+| ------------------ | --------------- |
+| Handle not found   | `404 Not Found` |
+
+---
+
+## Scheduled Publishing (Background Job)
+
+Blogs set to `scheduled` status are auto-published by a cron job running **every minute** on the server. There is no manual API call needed — it happens automatically.
+
+### How to test scheduled publishing
+
+1. Create a blog draft: `POST /blogs`
+2. Schedule it 2 minutes in the future:
+   ```
+   POST {{base_url}}/blogs/{{blog_slug}}/schedule
+   ```
+   ```json
+   { "scheduledAt": "2026-05-20T10:02:00.000Z" }
+   ```
+3. Confirm status is `scheduled`: `GET /blogs/me`
+4. Wait 2 minutes
+5. Check blog is now `published`: `GET /blogs/{{blog_slug}}` (public, no auth)
+6. Check server logs for: `Scheduler: published blog "your-blog-slug"`
+
+### Publish failure state
+
+If publishing fails for any reason, the blog status is set to `publish_failed`. You can recover it by manually publishing:
+
+```
+POST {{base_url}}/blogs/{{blog_slug}}/publish
+```
+
+Check for failed blogs:
+
+```sql
+SELECT slug, status, scheduled_at FROM blogs WHERE status = 'publish_failed';
+```
+
+---
+
 ## Full Happy-Path Flow
 
-Run these in order to test the complete user journey end-to-end.
+Run these in order to exercise the complete user journey end-to-end.
 
-### Step 1 — Register
+### Auth & Profile
 
-`POST /api/v1/auth/register` with `fullName`, `email`, `password`
+1. **Register** — `POST /auth/register` → check for verification email
+2. **Verify email** — `POST /auth/verify-email` with token from DB
+3. **Login** — `POST /auth/login` → save tokens to env
+4. **Onboarding** — `POST /auth/onboarding` with `displayName`
+5. **Get profile** — `GET /author-profiles/me` → confirm profile exists
+6. **Update profile** — `PATCH /author-profiles/me` with `bio` → confirm partial update
 
-### Step 2 — Verify Email
+### Company
 
-Grab the token from the `email_verification_tokens` table or server logs.  
-`POST /api/v1/auth/verify-email` with `{ "token": "..." }`
+7. **Create company** — `POST /companies` → save `company_handle` and `company_id` to env
+8. **Get company** — `GET /companies/{{company_handle}}` (no auth) → confirm public page works
+9. **Get my companies** — `GET /companies/mine` → should return the new company
+10. **Update company** — `PATCH /companies/{{company_handle}}` with `{ "stage": "growth" }`
+11. **Add milestone** — `POST /companies/{{company_handle}}/milestones` with type + headline
+12. **View milestones** — `GET /companies/{{company_handle}}/milestones` (no auth)
 
-### Step 3 — Login
+### Invite Flow (requires a second test account)
 
-`POST /api/v1/auth/login` → save `accessToken` and `refreshToken` to env.
+13. **Invite author** — `POST /companies/{{company_handle}}/invites` with second user's email → get token from DB
+14. **Accept invite** (as second user) — `POST /companies/invites/{{invite_token}}/accept`
+15. **Check members** — `GET /companies/{{company_handle}}/members` → both users visible
 
-### Step 4 — Onboarding
+### Blog
 
-`POST /api/v1/auth/onboarding` with `Authorization: Bearer {{access_token}}`  
-Confirm `username` is auto-generated from `displayName`.
+16. **Create draft** — `POST /blogs` with title + articleType → save `blog_slug` to env
+17. **Get my blogs** — `GET /blogs/me` → draft visible
+18. **Update draft** — `PATCH /blogs/{{blog_slug}}` with new title and tags
+19. **Schedule** — `POST /blogs/{{blog_slug}}/schedule` with future `scheduledAt`
+20. **Publish** — `POST /blogs/{{blog_slug}}/publish` (overrides scheduled status)
+21. **View publicly** — `GET /blogs/{{blog_slug}}` (no auth) → confirms published
+22. **Archive** — `POST /blogs/{{blog_slug}}/archive` → blog hidden from public
+23. **Confirm hidden** — `GET /blogs/{{blog_slug}}` (no auth) → `404`
+24. **Unarchive** — `POST /blogs/{{blog_slug}}/unarchive` → back to published
 
-### Step 5 — Get own profile
+### Author & Company Public Pages
 
-`GET /api/v1/author-profiles/me` — confirm profile exists.
+25. **Author blogs** — `GET /author-profiles/{{username}}/blogs` (no auth) → published blog appears
+26. **Company blogs** — `GET /companies/{{company_handle}}/blogs` (no auth) → published blog appears
 
-### Step 6 — Get public profile
+### Discovery
 
-`GET /api/v1/author-profiles/{{username}}` — no auth header. Should return same data.
+27. **Explore** — `GET /explore` → published blog appears
+28. **Filter by tag** — `GET /explore?tag=typescript` → filtered results
+29. **Tags list** — `GET /tags` → tags from blog appear
+30. **Trending tags** — `GET /tags/trending` → top 10
 
-### Step 7 — Update profile
+### Scheduled Publishing
 
-`PATCH /api/v1/author-profiles/me` with `{ "bio": "Hello world" }` — confirm partial update works.
+31. **Create another draft** — `POST /blogs` with a new title
+32. **Schedule it** — `POST /blogs/{{blog_slug}}/schedule` with `scheduledAt` 2 minutes from now
+33. **Wait 2 minutes** — cron fires every minute
+34. **Confirm auto-published** — `GET /blogs/{{blog_slug}}` (public) should return `200`
 
-### Step 8 — Refresh token
+### Tag Approval (Admin)
 
-`POST /api/v1/auth/refresh` — update `{{refresh_token}}` in env with the new one.
+35. **Get unapproved tags** — query DB: `SELECT id, name FROM tags WHERE is_approved = false`
+36. **Approve tag** — `POST /tags/{{tag_id}}/approve` with `{{admin_token}}`
+37. **Confirm in autocomplete** — `GET /tags` → approved tag now appears
 
-### Step 9 — Change password
+### Cleanup
 
-`POST /api/v1/auth/change-password` with `currentPassword` + `newPassword`.
-
-### Step 10 — Logout
-
-`POST /api/v1/auth/logout` with current `{{refresh_token}}`.
-
-### Step 11 — Confirm token revoked
-
-`POST /api/v1/auth/refresh` with the old `{{refresh_token}}` — should return `401`.
+38. **Refresh token** — `POST /auth/refresh` → update env
+39. **Logout** — `POST /auth/logout` → revoke token
+40. **Confirm revoked** — `POST /auth/refresh` with old token → `401`
 
 ---
 
 ## Login Lockout Flow
 
-Tests the 5-attempt lockout.
-
-1. `POST /api/v1/auth/login` with `{ "email": "test@example.com", "password": "WrongPass1" }` — repeat 5 times
-2. 6th attempt → expect `401` (locked) or `429` (rate limited)
-3. Wait 15 minutes OR manually delete the `login_attempts` row in the DB to reset early
+1. `POST /auth/login` with `{ "email": "test@example.com", "password": "WrongPass1" }` — repeat 5 times
+2. 6th attempt → `401` (locked)
+3. Reset early by deleting the row: `DELETE FROM login_attempts WHERE identifier_hash IS NOT NULL;`
 
 ---
 
 ## Admin Flow
 
-To get an admin token you must manually set `platformRole = 'platform_admin'` in the DB for a user, then log in normally.
+Manually promote a user to admin in the DB, then log in:
 
 ```sql
 UPDATE users SET platform_role = 'platform_admin' WHERE email = 'admin@example.com';
 ```
 
-Then:
+1. **Login as admin** → save to `{{admin_token}}`
+2. `GET /users` with `{{admin_token}}` → `200` (full user list)
+3. `GET /users` with `{{access_token}}` (regular user) → `403`
 
-1. `POST /api/v1/auth/login` as admin → save to `{{admin_token}}`
-2. `GET /api/v1/users` with `Authorization: Bearer {{admin_token}}` → `200`
-3. `GET /api/v1/users` with `Authorization: Bearer {{access_token}}` (regular user) → `403`
+---
+
+## Company Owner vs Author Permission Matrix
+
+Test these access control rules after setting up a company with an invited author (second account):
+
+| Action                              | Owner | Author | Expected for Author |
+| ----------------------------------- | ----- | ------ | ------------------- |
+| `PATCH /companies/:handle`          | ✅    | ❌     | `403 Forbidden`     |
+| `POST /companies/:handle/invites`   | ✅    | ❌     | `403 Forbidden`     |
+| `DELETE /companies/:handle/members/:id` | ✅ | ❌   | `403 Forbidden`     |
+| `POST /companies/:handle/milestones`| ✅    | ❌     | `403 Forbidden`     |
+| `POST /blogs` (under company)       | ✅    | ✅     | `201 Created`       |
+| `PATCH /blogs/:slug` (own blog)     | ✅    | ✅     | `200 OK`            |
+| `PATCH /blogs/:slug` (other's blog) | ✅    | ❌     | `403 Forbidden`     |
+| `POST /blogs/:slug/archive` (other's) | ✅  | ❌     | `403 Forbidden`     |
 
 ---
 
@@ -880,4 +1576,66 @@ When a limit is hit the response is `429 Too Many Requests`.
 | `Content-Type`  | `application/json`        | All POST / PATCH requests with a body |
 | `Authorization` | `Bearer {{access_token}}` | All protected endpoints               |
 
-No other headers are required. The `X-Correlation-Id` header is injected by the server on every response for request tracing — you can optionally pass your own value.
+The `X-Correlation-Id` header is injected by the server on every response for tracing — you can optionally pass your own value on requests.
+
+---
+
+## Useful Dev Queries
+
+Get the latest email verification token:
+```sql
+SELECT token FROM email_verification_tokens ORDER BY created_at DESC LIMIT 1;
+```
+
+Get the latest password reset token:
+```sql
+SELECT token FROM password_reset_tokens ORDER BY created_at DESC LIMIT 1;
+```
+
+Get the latest company invite token:
+```sql
+SELECT token, invited_email, expires_at FROM company_invites ORDER BY id DESC LIMIT 1;
+```
+
+Check blog status:
+```sql
+SELECT slug, status, published_at, scheduled_at FROM blogs ORDER BY created_at DESC LIMIT 5;
+```
+
+Check scheduled blogs due for publishing:
+```sql
+SELECT slug, scheduled_at, status FROM blogs WHERE status = 'scheduled' AND scheduled_at <= NOW();
+```
+
+Check publish_failed blogs:
+```sql
+SELECT slug, scheduled_at FROM blogs WHERE status = 'publish_failed';
+```
+
+Check tag counts and approval status:
+```sql
+SELECT name, slug, blog_count, is_approved FROM tags ORDER BY blog_count DESC;
+```
+
+Get unapproved tags (need admin approval):
+```sql
+SELECT id, name, slug FROM tags WHERE is_approved = false ORDER BY created_at DESC;
+```
+
+Check company memberships:
+```sql
+SELECT u.email, cm.role, c.handle FROM company_memberships cm
+JOIN users u ON u.id = cm.user_id
+JOIN companies c ON c.id = cm.company_id
+ORDER BY c.handle, cm.role;
+```
+
+Promote user to admin:
+```sql
+UPDATE users SET platform_role = 'platform_admin' WHERE email = 'your@email.com';
+```
+
+Reset login lockout:
+```sql
+DELETE FROM login_attempts;
+```

@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser } from '@common/decorators/current-user.decorator';
 import { Public } from '@common/decorators/public.decorator';
+import { BlogEntity } from '@modules/blogs/entities/blog.entity';
 import { JwtUser } from '@modules/auth/types/jwt-user.type';
 
 import { UpdateAuthorProfileDto } from '../dto/update-author-profile.dto';
@@ -29,6 +30,14 @@ export class AuthorProfilesController {
     @Body() dto: UpdateAuthorProfileDto,
   ): Promise<AuthorProfileEntity> {
     return this.authorProfilesService.updateMe(user.sub, dto);
+  }
+
+  // Static routes before /:username to avoid shadowing
+  @Get(':username/blogs')
+  @Public()
+  @ApiOkResponse({ type: BlogEntity, isArray: true, description: "Returns an author's published blogs, newest first." })
+  getAuthorBlogs(@Param('username') username: string): Promise<BlogEntity[]> {
+    return this.authorProfilesService.findPublishedBlogs(username);
   }
 
   @Get(':username')

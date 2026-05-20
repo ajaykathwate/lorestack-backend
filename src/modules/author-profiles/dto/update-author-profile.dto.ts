@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
+  ArrayMaxSize,
   IsArray,
   IsOptional,
   IsString,
@@ -42,6 +43,7 @@ export class UpdateAuthorProfileDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
+  @ArrayMaxSize(10)
   expertiseTags?: string[];
 
   @ApiProperty({ required: false, example: 'ajaykathwate' })

@@ -35,6 +35,17 @@ export class MailService {
     });
   }
 
+  async sendCompanyInviteEmail(to: string, companyName: string, token: string) {
+    const appUrl = this.configService.get<string>('app.frontendUrl') ?? 'http://localhost:3000';
+    const inviteUrl = `${appUrl}/invites/${token}/accept`;
+    const html = `
+      <p>You have been invited to join <strong>${companyName}</strong> on Lorestack as an author.</p>
+      <p><a href="${inviteUrl}">Accept invite</a></p>
+      <p>This invite expires in 7 days. If you did not expect this email, you can safely ignore it.</p>
+    `;
+    return this.sendEmail(to, `You're invited to join ${companyName} on Lorestack`, html);
+  }
+
   async sendForgotPasswordEmail(to: string, displayName: string, resetUrl: string) {
     return this.sendTemplateEmail({
       to,

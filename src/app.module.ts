@@ -1,6 +1,7 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
@@ -12,6 +13,10 @@ import { PrismaModule } from './database/prisma/prisma.module';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import { AuthorProfilesModule } from './modules/author-profiles/author-profiles.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { BlogsModule } from './modules/blogs/blogs.module';
+import { CompaniesModule } from './modules/companies/companies.module';
+import { DiscoveryModule } from './modules/discovery/discovery.module';
+import { TagsModule } from './modules/tags/tags.module';
 import { HealthModule } from './modules/health/health.module';
 import { MailModule } from './modules/mail/mail.module';
 import { UsersModule } from './modules/users/users.module';
@@ -38,6 +43,7 @@ import { AppLoggerModule } from './shared/logger/logger.module';
               },
       },
     }),
+    ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([
       {
         ttl: 60_000,
@@ -48,6 +54,10 @@ import { AppLoggerModule } from './shared/logger/logger.module';
     MailModule,
     AuthModule,
     AuthorProfilesModule,
+    BlogsModule,
+    CompaniesModule,
+    TagsModule,
+    DiscoveryModule,
     HealthModule,
     UsersModule,
     AppLoggerModule,

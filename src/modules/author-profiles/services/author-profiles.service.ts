@@ -1,6 +1,9 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 
 import { mapPrismaError } from '@database/prisma/prisma.exceptions';
+import { BlogEntity } from '@modules/blogs/entities/blog.entity';
+import { BlogsRepository } from '@modules/blogs/repositories/blogs.repository';
+import { TagEntity } from '@modules/tags/entities/tag.entity';
 
 import { UpdateAuthorProfileDto } from '../dto/update-author-profile.dto';
 import { AuthorProfileEntity } from '../entities/author-profile.entity';
@@ -8,7 +11,10 @@ import { AuthorProfilesRepository } from '../repositories/author-profiles.reposi
 
 @Injectable()
 export class AuthorProfilesService {
-  constructor(private readonly repo: AuthorProfilesRepository) {}
+  constructor(
+    private readonly repo: AuthorProfilesRepository,
+    private readonly blogsRepo: BlogsRepository,
+  ) {}
 
   async findByUsername(username: string): Promise<AuthorProfileEntity> {
     const profile = await this.repo.findByUsername(username);
@@ -24,6 +30,17 @@ export class AuthorProfilesService {
       throw new NotFoundException('Author profile not found. Please complete onboarding.');
     }
     return new AuthorProfileEntity(profile);
+  }
+
+  async findPublishedBlogs(username: string): Promise<BlogEntity[]> {
+    const profile = await this.repo.findByUsername(username);
+    if (!profile) throw new NotFoundException('Author profile not found.');
+
+    const blogs = await this.blogsRepo.findPublishedByAuthorId(profile.userId);
+    return blogs.map((b) => {
+      const tags = b.tags.map((bt) => new TagEntity(bt.tag));
+      return new BlogEntity({ ...b, tags });
+    });
   }
 
   async updateMe(userId: string, dto: UpdateAuthorProfileDto): Promise<AuthorProfileEntity> {
