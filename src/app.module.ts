@@ -2,12 +2,15 @@ import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { LoggerModule } from 'nestjs-pino';
 
 import configuration from './config/configuration';
 import { envValidationSchema } from './config/env.validation';
 import { PrismaModule } from './database/prisma/prisma.module';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
+import { AuthorProfilesModule } from './modules/author-profiles/author-profiles.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
 import { MailModule } from './modules/mail/mail.module';
@@ -44,6 +47,7 @@ import { AppLoggerModule } from './shared/logger/logger.module';
     PrismaModule,
     MailModule,
     AuthModule,
+    AuthorProfilesModule,
     HealthModule,
     UsersModule,
     AppLoggerModule,
@@ -52,6 +56,10 @@ import { AppLoggerModule } from './shared/logger/logger.module';
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
     },
   ],
 })

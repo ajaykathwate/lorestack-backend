@@ -7,23 +7,141 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum AuthProvider {
+  LOCAL
+  GOOGLE
+}
+
+enum PlatformRole {
+  user
+  platform_admin
+}
+
+enum BlogStatus {
+  draft
+  published
+  scheduled
+  archived
+  publish_failed
+}
+
+enum ArticleType {
+  engineering_blog
+  architecture_deep_dive
+  case_study
+  scaling_story
+  failure_postmortem
+  ai_experiment
+  founder_note
+  tutorial
+  opinion_essay
+  project_showcase
+  open_source_release
+  other
+}
+
+enum CompanyRole {
+  owner
+  author
+}
+
+enum MilestoneType {
+  launch
+  user_milestone
+  infra_update
+  funding
+  feature_release
+  bug_fixed
+  partnership
+  hiring
+  experiment
+  other
+}
+
+enum InviteStatus {
+  pending
+  accepted
+  declined
+  expired
+}
+
+enum IndustryType {
+  ai
+  saas
+  dev_tools
+  fintech
+  health_tech
+  ed_tech
+  consumer
+  other
+}
+
+enum CompanyStage {
+  idea
+  mvp_stage
+  early_stage
+  growth
+  scale
+}
+
+enum EntityType {
+  blog
+  company
+  author
+  tag
+}
+
+// ─── Identity & Auth ──────────────────────────────────────────────────────────
+
 model User {
-  id                 String                   @id @default(uuid()) @db.Uuid
-  username           String                   @unique
-  email              String                   @unique
-  password           String
-  emailVerifiedAt    DateTime?
-  passwordChangedAt  DateTime?
-  deletedAt          DateTime?
-  createdAt          DateTime                 @default(now())
-  updatedAt          DateTime                 @updatedAt
+  id                String       @id @default(uuid()) @db.Uuid
+  email             String       @unique @db.VarChar(320)
+  password          String?
+  provider          AuthProvider @default(LOCAL)
+  providerId        String?
+  isEmailVerified   Boolean      @default(false)
+  isActive          Boolean      @default(true)
+  platformRole      PlatformRole @default(user)
+  passwordChangedAt DateTime?
+  deletedAt         DateTime?
+  createdAt         DateTime     @default(now())
+
+  authorProfile      AuthorProfile?
   refreshTokens      RefreshToken[]
   passwordResets     PasswordResetToken[]
   emailVerifications EmailVerificationToken[]
   authAuditLogs      AuthAuditLog[]
+  companyMemberships CompanyMembership[]
+  companyInvitesSent CompanyInvite[]          @relation("invitedBy")
+  blogs              Blog[]
+  companiesCreated   Company[]                @relation("companyCreator")
+  milestones         CompanyMilestone[]
 
   @@map("users")
 }
+
+model AuthorProfile {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @unique @db.Uuid
+  displayName   String   @db.VarChar(100)
+  username      String   @unique @db.VarChar(50)
+  bio           String?  @db.VarChar(300)
+  avatarUrl     String?
+  expertiseTags String[]
+  twitterHandle String?  @db.VarChar(100)
+  linkedinUrl   String?
+  githubHandle  String?  @db.VarChar(100)
+  websiteUrl    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("author_profiles")
+}
+
+// ─── Auth Support Tables ──────────────────────────────────────────────────────
 
 model RefreshToken {
   id         String    @id @default(uuid()) @db.Uuid
@@ -70,7 +188,7 @@ model EmailVerificationToken {
 
 model LoginAttempt {
   id             String    @id @default(uuid()) @db.Uuid
-  identifierHash String
+  identifierHash String    @unique
   ipAddress      String?
   failedCount    Int       @default(0)
   lockedUntil    DateTime?
@@ -78,7 +196,6 @@ model LoginAttempt {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  @@unique([identifierHash, ipAddress])
   @@index([lockedUntil])
   @@map("login_attempts")
 }
@@ -97,4 +214,177 @@ model AuthAuditLog {
   @@index([event])
   @@index([createdAt])
   @@map("auth_audit_logs")
+}
+
+// ─── Company Domain ───────────────────────────────────────────────────────────
+
+model Company {
+  id                String        @id @default(uuid()) @db.Uuid
+  createdByUserId   String        @db.Uuid
+  name              String        @db.VarChar(100)
+  handle            String        @unique @db.VarChar(50)
+  tagline           String        @db.VarChar(160)
+  websiteUrl        String?
+  logoUrl           String?
+  coverImageUrl     String?
+  industry          IndustryType?
+  stage             CompanyStage?
+  techStack         String[]
+  founderSocialLink String?
+  isPublic          Boolean       @default(true)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  creator     User                @relation("companyCreator", fields: [createdByUserId], references: [id])
+  memberships CompanyMembership[]
+  invites     CompanyInvite[]
+  blogs       Blog[]
+  milestones  CompanyMilestone[]
+
+  @@index([handle])
+  @@map("companies")
+}
+
+model CompanyMembership {
+  id        String      @id @default(uuid()) @db.Uuid
+  companyId String      @db.Uuid
+  userId    String      @db.Uuid
+  role      CompanyRole
+  joinedAt  DateTime    @default(now())
+  company   Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, userId], name: "uq_company_memberships_company_user")
+  @@index([companyId], name: "idx_company_memberships_company")
+  @@index([userId], name: "idx_company_memberships_user")
+  @@map("company_memberships")
+}
+
+model CompanyInvite {
+  id              String       @id @default(uuid()) @db.Uuid
+  companyId       String       @db.Uuid
+  invitedByUserId String       @db.Uuid
+  invitedEmail    String       @db.VarChar(320)
+  status          InviteStatus @default(pending)
+  token           String       @unique
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  company         Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invitedBy       User         @relation("invitedBy", fields: [invitedByUserId], references: [id])
+
+  @@index([companyId], name: "idx_company_invites_company")
+  @@index([token], name: "idx_company_invites_token")
+  @@index([companyId, invitedEmail], name: "idx_company_invites_company_email")
+  @@map("company_invites")
+}
+
+// ─── Content Domain ───────────────────────────────────────────────────────────
+
+model Blog {
+  id                String      @id @default(uuid()) @db.Uuid
+  authorId          String      @db.Uuid
+  companyId         String?     @db.Uuid
+  title             String      @db.VarChar(150)
+  slug              String      @unique @db.VarChar(200)
+  body              String
+  summary           String?     @db.VarChar(300)
+  coverImageUrl     String?
+  ogImageUrl        String
+  articleType       ArticleType
+  status            BlogStatus  @default(draft)
+  publishedAt       DateTime?
+  scheduledAt       DateTime?
+  scheduledTimezone String?     @db.VarChar(100)
+  seoTitleOverride  String?     @db.VarChar(60)
+  seoDescOverride   String?     @db.VarChar(160)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  author  User      @relation(fields: [authorId], references: [id])
+  company Company?  @relation(fields: [companyId], references: [id])
+  tags    BlogTag[]
+
+  @@index([authorId], name: "idx_blogs_author")
+  @@index([companyId], name: "idx_blogs_company")
+  @@index([status], name: "idx_blogs_status")
+  @@index([status, scheduledAt], name: "idx_blogs_scheduled")
+  @@index([authorId, status], name: "idx_blogs_author_status")
+  @@index([companyId, status], name: "idx_blogs_company_status")
+  @@map("blogs")
+}
+
+model BlogTag {
+  blogId String @db.Uuid
+  tagId  String @db.Uuid
+  blog   Blog   @relation(fields: [blogId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([blogId, tagId], name: "pk_blog_tags")
+  @@index([tagId], name: "idx_blog_tags_tag")
+  @@map("blog_tags")
+}
+
+model Tag {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String    @unique @db.VarChar(50)
+  slug        String    @unique @db.VarChar(60)
+  description String?
+  blogCount   Int       @default(0)
+  isApproved  Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  blogs       BlogTag[]
+
+  @@index([isApproved], name: "idx_tags_approved")
+  @@map("tags")
+}
+
+// ─── Build-In-Public Timeline ─────────────────────────────────────────────────
+
+model CompanyMilestone {
+  id              String        @id @default(uuid()) @db.Uuid
+  companyId       String        @db.Uuid
+  createdByUserId String        @db.Uuid
+  type            MilestoneType
+  headline        String        @db.VarChar(100)
+  description     String?       @db.VarChar(500)
+  impactMetric    String?       @db.VarChar(80)
+  milestoneDate   DateTime      @db.Date
+  createdAt       DateTime      @default(now())
+
+  company       Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdByUser User    @relation(fields: [createdByUserId], references: [id])
+
+  @@index([companyId], name: "idx_milestones_company")
+  @@index([companyId, milestoneDate], name: "idx_milestones_company_date")
+  @@map("company_milestones")
+}
+
+// ─── SEO & Routing ────────────────────────────────────────────────────────────
+
+model SeoMetadata {
+  id              String     @id @default(uuid()) @db.Uuid
+  entityId        String     @db.Uuid
+  entityType      EntityType
+  metaTitle       String     @db.VarChar(60)
+  metaDescription String     @db.VarChar(160)
+  ogImageUrl      String
+  canonicalUrl    String
+  schemaJson      String
+  lastGeneratedAt DateTime   @default(now())
+
+  @@unique([entityId, entityType], name: "uq_seo_metadata_entity")
+  @@index([entityType], name: "idx_seo_metadata_type")
+  @@map("seo_metadata")
+}
+
+model SlugRedirect {
+  id         String     @id @default(uuid()) @db.Uuid
+  fromSlug   String     @db.VarChar(200)
+  toSlug     String     @db.VarChar(200)
+  entityType EntityType
+  createdAt  DateTime   @default(now())
+
+  @@unique([fromSlug, entityType], name: "uq_slug_redirects_from_type")
+  @@index([entityType], name: "idx_slug_redirects_type")
+  @@map("slug_redirects")
 }

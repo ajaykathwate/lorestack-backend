@@ -4,7 +4,13 @@
       "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\Ajay Kathwate\\\\Developer\\\\lorestack\\\\lorestack-backend\" -Recurse -File | Select-Object -First 30 | ForEach-Object { $_.FullName })",
       "Bash(npx prisma *)",
       "PowerShell(Get-Process -Name \"node\" -ErrorAction SilentlyContinue)",
-      "PowerShell(Stop-Process -Force -Confirm:$false)"
+      "PowerShell(Stop-Process -Force -Confirm:$false)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Ajay Kathwate\\\\Developer\\\\lorestack\\\\lorestack-backend\\\\src\\\\modules\\\\auth\" -Recurse -File)",
+      "Bash(pnpm add *)",
+      "Bash(pnpm prisma *)",
+      "Bash(node -e \"const { PrismaClient } = require\\('@prisma/client'\\); console.log\\(Object.keys\\(new PrismaClient\\(\\)\\)\\)\")",
+      "Bash(node -e \"const p = require\\('@prisma/client'\\); console.log\\('AuthProvider:', p.AuthProvider\\); console.log\\('PlatformRole:', p.PlatformRole\\);\")",
+      "Bash(pnpm build *)"
     ]
   }
 }

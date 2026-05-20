@@ -1,33 +1,40 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { AuthProvider, PlatformRole } from '@prisma/client';
 import { Exclude } from 'class-transformer';
 
 export class UserEntity {
   @ApiProperty({ format: 'uuid' })
   id: string;
 
-  @ApiProperty()
-  username: string;
-
   @ApiProperty({ format: 'email' })
   email: string;
 
-  @Exclude()
-  password: string;
+  @ApiProperty({ enum: AuthProvider })
+  provider: AuthProvider;
 
-  @ApiProperty({ required: false, nullable: true })
-  emailVerifiedAt?: Date | null;
+  @ApiProperty()
+  isEmailVerified: boolean;
 
-  @ApiProperty({ required: false, nullable: true })
-  passwordChangedAt?: Date | null;
+  @ApiProperty()
+  isActive: boolean;
 
-  @Exclude()
-  deletedAt?: Date | null;
+  @ApiProperty({ enum: PlatformRole })
+  platformRole: PlatformRole;
 
   @ApiProperty()
   createdAt: Date;
 
-  @ApiProperty()
-  updatedAt: Date;
+  @Exclude()
+  password?: string | null;
+
+  @Exclude()
+  providerId?: string | null;
+
+  @Exclude()
+  passwordChangedAt?: Date | null;
+
+  @Exclude()
+  deletedAt?: Date | null;
 
   constructor(partial: Partial<UserEntity>) {
     Object.assign(this, partial);

@@ -28,15 +28,8 @@ export class UsersRepository {
     return this.prisma.user.findFirst({ where: { email, deletedAt: null } });
   }
 
-  findByUsername(username: string) {
-    return this.prisma.user.findFirst({ where: { username, deletedAt: null } });
-  }
-
   update(id: string, data: Prisma.UserUpdateInput) {
-    return this.prisma.user.update({
-      where: { id },
-      data,
-    });
+    return this.prisma.user.update({ where: { id }, data });
   }
 
   delete(id: string) {
@@ -46,20 +39,10 @@ export class UsersRepository {
     });
   }
 
-  updatePassword(id: string, password: string) {
-    return this.prisma.user.update({
-      where: { id },
-      data: {
-        password,
-        passwordChangedAt: new Date(),
-      },
-    });
-  }
-
   markEmailVerified(id: string) {
     return this.prisma.user.update({
       where: { id },
-      data: { emailVerifiedAt: new Date() },
+      data: { isEmailVerified: true },
     });
   }
 }
