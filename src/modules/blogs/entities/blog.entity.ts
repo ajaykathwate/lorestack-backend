@@ -3,6 +3,36 @@ import { ArticleType, BlogStatus } from '@prisma/client';
 
 import { TagEntity } from '@modules/tags/entities/tag.entity';
 
+export class EmbeddedAuthorProfile {
+  @ApiProperty()
+  displayName: string;
+
+  @ApiProperty()
+  username: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  avatarUrl?: string | null;
+
+  constructor(partial: Partial<EmbeddedAuthorProfile>) {
+    Object.assign(this, partial);
+  }
+}
+
+export class EmbeddedCompany {
+  @ApiProperty()
+  name: string;
+
+  @ApiProperty()
+  handle: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  logoUrl?: string | null;
+
+  constructor(partial: Partial<EmbeddedCompany>) {
+    Object.assign(this, partial);
+  }
+}
+
 export class BlogEntity {
   @ApiProperty({ format: 'uuid' })
   id: string;
@@ -12,6 +42,12 @@ export class BlogEntity {
 
   @ApiPropertyOptional({ format: 'uuid', nullable: true })
   companyId?: string | null;
+
+  @ApiPropertyOptional({ type: () => EmbeddedAuthorProfile, nullable: true })
+  authorProfile?: EmbeddedAuthorProfile | null;
+
+  @ApiPropertyOptional({ type: () => EmbeddedCompany, nullable: true })
+  company?: EmbeddedCompany | null;
 
   @ApiProperty()
   title: string;

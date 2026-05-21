@@ -16,6 +16,8 @@ import { CompaniesRepository } from '@modules/companies/repositories/companies.r
 import { TagsRepository } from '@modules/tags/repositories/tags.repository';
 import { TagsService } from '@modules/tags/services/tags.service';
 
+import { PaginatedResponse } from '@common/dto/paginated-response.dto';
+
 import { CreateBlogDto } from '../dto/create-blog.dto';
 import { ScheduleBlogDto } from '../dto/schedule-blog.dto';
 import { UpdateBlogDto } from '../dto/update-blog.dto';
@@ -83,18 +85,31 @@ export class BlogsService {
     return toBlogEntity(blog);
   }
 
-  async findMyBlogs(userId: string): Promise<BlogSummaryEntity[]> {
-    const blogs = await this.repo.findByAuthor(userId);
-    return blogs.map(toBlogSummaryEntity);
+  async findMyBlogs(
+    userId: string,
+    page = 1,
+    limit = 20,
+  ): Promise<PaginatedResponse<BlogSummaryEntity>> {
+    const skip = (page - 1) * limit;
+    const [blogs, total] = await Promise.all([
+      this.repo.findByAuthor(userId, skip, limit),
+      this.repo.countByAuthor(userId),
+    ]);
+    return new PaginatedResponse(blogs.map(toBlogSummaryEntity), total, page, limit);
+  }
+
+  async getMyStats(userId: string): Promise<{ draft: number; published: number; scheduled: number; archived: number }> {
+    const rows = await this.repo.countByStatusForAuthor(userId);
+    const counts = { draft: 0, published: 0, scheduled: 0, archived: 0 };
+    for (const row of rows) {
+      const key = row.status as keyof typeof counts;
+      if (key in counts) counts[key] = row._count;
+    }
+    return counts;
   }
 
   async update(slug: string, dto: UpdateBlogDto, requester: JwtUser): Promise<BlogEntity> {
     const blog = await this.getAndAuthorize(slug, requester, 'edit');
-
-    let newSlug: string | undefined;
-    if (dto.title && dto.title !== blog.title && blog.status === BlogStatus.draft) {
-      newSlug = await this.generateSlug(dto.title);
-    }
 
     let tagIds: string[] | undefined;
     if (dto.tags !== undefined) {
@@ -111,7 +126,6 @@ export class BlogsService {
     try {
       const updated = await this.repo.update(blog.id, {
         ...(dto.title ? { title: dto.title } : {}),
-        ...(newSlug ? { slug: newSlug } : {}),
         ...(dto.body !== undefined ? { body: dto.body } : {}),
         ...(dto.articleType ? { articleType: dto.articleType } : {}),
         ...(dto.summary !== undefined ? { summary: dto.summary } : {}),

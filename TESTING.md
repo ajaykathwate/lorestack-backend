@@ -11,18 +11,20 @@ All endpoints are versioned under `/api/v1/`.
 
 Create a Postman environment called **Lorestack Local** with these variables:
 
-| Variable         | Initial Value                   | Description                        |
-| ---------------- | ------------------------------- | ---------------------------------- |
-| `base_url`       | `http://localhost:3001/api/v1`  | Base URL                           |
-| `access_token`   | _(empty)_                       | Set automatically after login      |
-| `refresh_token`  | _(empty)_                       | Set automatically after login      |
-| `user_id`        | _(empty)_                       | Set after login or register        |
-| `admin_token`    | _(empty)_                       | Set after logging in as admin      |
-| `company_handle` | _(empty)_                       | Set after creating a company       |
-| `company_id`     | _(empty)_                       | Set after creating a company       |
-| `blog_slug`      | _(empty)_                       | Set after creating a blog          |
-| `blog_id`        | _(empty)_                       | Set after creating a blog          |
-| `invite_token`   | _(empty)_                       | Set from DB after sending an invite|
+| Variable            | Initial Value                   | Description                              |
+| ------------------- | ------------------------------- | ---------------------------------------- |
+| `base_url`          | `http://localhost:3001/api/v1`  | Base URL                                 |
+| `access_token`      | _(empty)_                       | Set automatically after login            |
+| `refresh_token`     | _(empty)_                       | Set automatically after login            |
+| `user_id`           | _(empty)_                       | Set after login or register              |
+| `admin_token`       | _(empty)_                       | Set after logging in as admin            |
+| `company_handle`    | _(empty)_                       | Set after creating a company             |
+| `company_id`        | _(empty)_                       | Set after creating a company             |
+| `blog_slug`         | _(empty)_                       | Set after creating a blog                |
+| `blog_id`           | _(empty)_                       | Set after creating a blog                |
+| `invite_token`      | _(empty)_                       | Set from DB after sending an invite      |
+| `invite_id`         | _(empty)_                       | Set from DB after sending an invite      |
+| `author_profile_id` | _(empty)_                       | Set from `GET /author-profiles/me`       |
 
 ### Auto-capture tokens (Login test script)
 
@@ -555,6 +557,24 @@ GET {{base_url}}/author-profiles/ajay-kathwate
 
 ---
 
+### 19a. Get Profile by ID (Public)
+
+**`GET {{base_url}}/author-profiles/by-id/:id`**
+
+Lookup by UUID — useful when the frontend has the `authorId` from a blog response but not the username.
+
+```
+GET {{base_url}}/author-profiles/by-id/{{author_profile_id}}
+```
+
+**Error cases**
+
+| Scenario        | Expected        |
+| --------------- | --------------- |
+| Unknown UUID    | `404 Not Found` |
+
+---
+
 ## Companies Endpoints
 
 All write endpoints require JWT unless marked public.
@@ -1010,11 +1030,11 @@ New tag names are created as `isApproved: false`.
 
 ---
 
-### 32. Get My Blogs
+### 32. Get My Blogs (Paginated)
 
-**`GET {{base_url}}/blogs/me`**
+**`GET {{base_url}}/blogs/me?page=1&limit=20`**
 
-Returns ALL of the authenticated user's blogs (drafts, published, archived, scheduled).
+Returns ALL of the authenticated user's blogs (drafts, published, archived, scheduled), paginated.
 
 **Headers**
 
@@ -1022,7 +1042,52 @@ Returns ALL of the authenticated user's blogs (drafts, published, archived, sche
 Authorization: Bearer {{access_token}}
 ```
 
-**Expected: 200** — array of blog summary objects ordered newest-first. Summaries omit `body`, `seoTitleOverride`, and `seoDescOverride` (full content is only returned when fetching a single blog by slug).
+**Query params (all optional)**
+
+| Param   | Default | Max |
+| ------- | ------- | --- |
+| `page`  | `1`     | —   |
+| `limit` | `20`    | `50`|
+
+**Expected: 200**
+
+```json
+{
+  "data": {
+    "data": [ ...blog summary objects... ],
+    "meta": { "page": 1, "limit": 20, "total": 5, "hasNextPage": false }
+  }
+}
+```
+
+Summaries omit `body`, `seoTitleOverride`, and `seoDescOverride`.
+
+---
+
+### 32a. Get My Blog Stats
+
+**`GET {{base_url}}/blogs/me/stats`**
+
+Returns blog counts broken down by status for the authenticated user.
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200**
+
+```json
+{
+  "data": {
+    "draft": 2,
+    "published": 5,
+    "scheduled": 1,
+    "archived": 0
+  }
+}
+```
 
 ---
 
@@ -1069,7 +1134,7 @@ Authorization: Bearer {{access_token}}
 }
 ```
 
-Note: if `title` changes on a **draft**, the slug is also regenerated. Published blog slugs do not change on title edit (to preserve URLs).
+Note: the slug is **never** changed on update — it is fixed at creation time for all statuses. This ensures URLs are stable even when drafts are renamed.
 
 **Error cases**
 
@@ -1302,11 +1367,11 @@ SELECT id, name, is_approved FROM tags ORDER BY created_at DESC;
 
 All discovery endpoints are public (no auth required).
 
-### 43. Explore — Browse All Published Blogs
+### 43. Explore — Browse All Published Blogs (Paginated)
 
 **`GET {{base_url}}/explore`**
 
-Filterable, paginated listing of all published blogs.
+Filterable, paginated listing of all published blogs. Response shape changed to include `meta` for pagination.
 
 **Query params (all optional)**
 
@@ -1316,6 +1381,7 @@ Filterable, paginated listing of all published blogs.
 | `tag`       | string   | Tag slug                                | `?tag=typescript`    |
 | `companyId` | UUID     | Company UUID                            | `?companyId=uuid`    |
 | `dateRange` | string   | `week`, `month`, `6months`, `all`       | `?dateRange=month`   |
+| `sort`      | string   | `newest` (default), `oldest`            | `?sort=oldest`       |
 | `page`      | number   | Default `1`                             | `?page=2`            |
 | `limit`     | number   | Default `20`, max `50`                  | `?limit=10`          |
 
@@ -1323,12 +1389,21 @@ Filterable, paginated listing of all published blogs.
 
 ```
 GET {{base_url}}/explore
-GET {{base_url}}/explore?type=tutorial&tag=typescript&page=1&limit=10
+GET {{base_url}}/explore?type=tutorial&tag=typescript&sort=oldest
 GET {{base_url}}/explore?dateRange=week&type=case_study
-GET {{base_url}}/explore?companyId=some-uuid&dateRange=month
+GET {{base_url}}/explore?companyId=some-uuid&page=2&limit=10
 ```
 
-**Expected: 200** — array of blog summary objects with embedded tags, newest-first. Summaries omit `body`, `seoTitleOverride`, and `seoDescOverride`.
+**Expected: 200**
+
+```json
+{
+  "data": {
+    "data": [ ...blog summary objects... ],
+    "meta": { "page": 1, "limit": 20, "total": 47, "hasNextPage": true }
+  }
+}
+```
 
 **Error cases**
 
@@ -1337,6 +1412,21 @@ GET {{base_url}}/explore?companyId=some-uuid&dateRange=month
 | Invalid `type` enum value | `400 Bad Request` |
 | Invalid `companyId` UUID  | `400 Bad Request` |
 | `limit` > 50              | `400 Bad Request` |
+
+---
+
+### 43a. Trending Blogs
+
+**`GET {{base_url}}/explore/trending?limit=5`**
+
+Returns the most-viewed published blogs from the past 7 days. Used for the homepage trending section.
+
+```
+GET {{base_url}}/explore/trending
+GET {{base_url}}/explore/trending?limit=10
+```
+
+**Expected: 200** — array of blog summary objects ordered by view count descending.
 
 ---
 
@@ -1352,33 +1442,33 @@ Returns top 10 approved tags by `blogCount`. Use for homepage tag pills.
 
 ## Author Published Blogs Endpoint
 
-### 45. Get Author's Published Blogs (Public)
+### 45. Get Author's Published Blogs (Public, Paginated)
 
-**`GET {{base_url}}/author-profiles/:username/blogs`**
+**`GET {{base_url}}/author-profiles/:username/blogs?page=1&limit=20&sort=newest`**
 
-No auth required. Returns all published (non-archived) blogs for the given author, newest first. Used to populate the blog list on the public `/author/[username]` page.
+No auth required. Paginated list of published blogs for an author. Used to populate the blog list on the public `/author/[username]` page.
 
 ```
 GET {{base_url}}/author-profiles/ajay-kathwate/blogs
+GET {{base_url}}/author-profiles/ajay-kathwate/blogs?sort=oldest&limit=10
 ```
 
-**Expected: 200** — array of blog objects with embedded tags.
+**Query params (all optional)**
+
+| Param   | Default   | Notes                     |
+| ------- | --------- | ------------------------- |
+| `page`  | `1`       | —                         |
+| `limit` | `20`      | —                         |
+| `sort`  | `newest`  | `newest` or `oldest`      |
+
+**Expected: 200**
 
 ```json
 {
-  "data": [
-    {
-      "id": "uuid",
-      "authorId": "uuid",
-      "title": "How We Scaled to 100k Users",
-      "slug": "how-we-scaled-to-100k-users",
-      "articleType": "scaling_story",
-      "status": "published",
-      "publishedAt": "2026-05-20T...",
-      "tags": [{ "name": "TypeScript", "slug": "typescript" }],
-      ...
-    }
-  ]
+  "data": {
+    "data": [ ...blog summary objects... ],
+    "meta": { "page": 1, "limit": 20, "total": 8, "hasNextPage": false }
+  }
 }
 ```
 
@@ -1392,23 +1482,449 @@ GET {{base_url}}/author-profiles/ajay-kathwate/blogs
 
 ## Company Published Blogs Endpoint
 
-### 46. Get Company's Published Blogs (Public)
+### 46. Get Company's Published Blogs (Public, Paginated)
 
-**`GET {{base_url}}/companies/:handle/blogs`**
+**`GET {{base_url}}/companies/:handle/blogs?page=1&limit=20&sort=newest`**
 
-No auth required. Returns all published (non-archived) blogs under the company, newest first. Used to populate the **Blogs tab** on the public `/company/[handle]` page.
+No auth required. Paginated published blogs for a company. Used to populate the **Blogs tab** on the public `/company/[handle]` page.
 
 ```
 GET {{base_url}}/companies/acme-corp/blogs
+GET {{base_url}}/companies/acme-corp/blogs?sort=oldest&page=2&limit=10
 ```
 
-**Expected: 200** — array of blog objects with embedded tags.
+**Query params (all optional)**
+
+| Param   | Default   | Notes                |
+| ------- | --------- | -------------------- |
+| `page`  | `1`       | —                    |
+| `limit` | `20`      | —                    |
+| `sort`  | `newest`  | `newest` or `oldest` |
+
+**Expected: 200**
+
+```json
+{
+  "data": {
+    "data": [ ...blog summary objects... ],
+    "meta": { "page": 1, "limit": 20, "total": 12, "hasNextPage": false }
+  }
+}
+```
 
 **Error cases**
 
 | Scenario           | Expected        |
 | ------------------ | --------------- |
 | Handle not found   | `404 Not Found` |
+
+---
+
+### 46a. Get Company by ID (Public)
+
+**`GET {{base_url}}/companies/by-id/:id`**
+
+Lookup by UUID — useful when you have a company UUID but not the handle.
+
+```
+GET {{base_url}}/companies/by-id/{{company_id}}
+```
+
+---
+
+### 46b. Get Featured Companies (Public)
+
+**`GET {{base_url}}/companies/featured?limit=6`**
+
+Returns companies with `featured: true`, newest first. Used for the homepage featured section.
+
+```
+GET {{base_url}}/companies/featured
+GET {{base_url}}/companies/featured?limit=3
+```
+
+**Expected: 200** — array of company objects. Empty array if no featured companies exist.
+
+> To feature a company, set `featured = true` in the DB:
+> ```sql
+> UPDATE companies SET featured = true WHERE handle = 'stackpilot';
+> ```
+
+---
+
+### 46c. List Pending Invites (Owner only)
+
+**`GET {{base_url}}/companies/:handle/invites`**
+
+Returns all pending invites for the company. Requires Owner role.
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200**
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "invitedEmail": "newauthor@example.com",
+      "status": "pending",
+      "expiresAt": "2026-05-28T...",
+      "token": "abc123..."
+    }
+  ]
+}
+```
+
+---
+
+### 46d. Revoke Invite (Owner only)
+
+**`DELETE {{base_url}}/companies/:handle/invites/:inviteId`**
+
+Permanently deletes the invite. The invited user can no longer accept it. Returns `204 No Content`.
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Error cases**
+
+| Scenario         | Expected           |
+| ---------------- | ------------------ |
+| Not owner        | `403 Forbidden`    |
+| Invite not found | `404 Not Found`    |
+
+---
+
+### 46e. Resend Invite (Owner only)
+
+**`POST {{base_url}}/companies/:handle/invites/:inviteId/resend`**
+
+Creates a new invite (with a fresh 7-day expiry) and sends a new email. The old invite is deleted. Returns `204 No Content`.
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Error cases**
+
+| Scenario               | Expected           |
+| ---------------------- | ------------------ |
+| Not owner              | `403 Forbidden`    |
+| Invite not found       | `404 Not Found`    |
+| Invite not pending     | `400 Bad Request`  |
+
+---
+
+## Search Endpoint
+
+### 47. Search (Public)
+
+**`GET {{base_url}}/search?q=typescript&limit=10`**
+
+Full-text search across blogs, companies, and authors. Returns up to `limit` results per type.
+
+```
+GET {{base_url}}/search?q=typescript
+GET {{base_url}}/search?q=nestjs&limit=5
+```
+
+**Query params**
+
+| Param   | Required | Default | Notes              |
+| ------- | -------- | ------- | ------------------ |
+| `q`     | Yes      | —       | 1–100 chars        |
+| `limit` | No       | `10`    | Max per type, 1–20 |
+
+**Expected: 200**
+
+```json
+{
+  "data": {
+    "blogs": [
+      { "id": "uuid", "title": "TypeScript Tips", "slug": "typescript-tips", "summary": "...", "publishedAt": "..." }
+    ],
+    "companies": [
+      { "id": "uuid", "name": "Acme Corp", "handle": "acme-corp", "tagline": "...", "logoUrl": null }
+    ],
+    "authors": [
+      { "id": "uuid", "displayName": "Ajay K", "username": "ajay-k", "avatarUrl": null, "bio": "..." }
+    ]
+  }
+}
+```
+
+---
+
+## Follow Endpoints
+
+All follow endpoints require JWT.
+
+### 48. Follow an Author
+
+**`POST {{base_url}}/author-profiles/:id/follow`**
+
+`id` is the `AuthorProfile.id` (UUID), not the userId or username.
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200**
+
+```json
+{
+  "data": { "followersCount": 1 }
+}
+```
+
+**Error cases**
+
+| Scenario             | Expected           |
+| -------------------- | ------------------ |
+| Already following    | `409 Conflict`     |
+| Following yourself   | `409 Conflict`     |
+| Profile not found    | `404 Not Found`    |
+
+---
+
+### 49. Unfollow an Author
+
+**`DELETE {{base_url}}/author-profiles/:id/follow`**
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200** — `{ "followersCount": 0 }`
+
+**Error cases**
+
+| Scenario          | Expected        |
+| ----------------- | --------------- |
+| Not following     | `404 Not Found` |
+
+---
+
+### 50. Follow a Company
+
+**`POST {{base_url}}/companies/:id/follow`**
+
+`id` is the Company UUID (not the handle).
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200** — `{ "followersCount": 1 }`
+
+**Error cases**
+
+| Scenario          | Expected           |
+| ----------------- | ------------------ |
+| Already following | `409 Conflict`     |
+| Company not found | `404 Not Found`    |
+
+---
+
+### 51. Unfollow a Company
+
+**`DELETE {{base_url}}/companies/:id/follow`**
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200** — `{ "followersCount": 0 }`
+
+---
+
+## Analytics Endpoints
+
+### 52. Record Blog View (Public)
+
+**`POST {{base_url}}/blogs/:slug/view`**
+
+Records a view for a published blog. No auth required — IP is hashed for deduplication. Call this when a reader opens a blog post.
+
+```
+POST {{base_url}}/blogs/how-we-scaled-to-100k-users/view
+```
+
+**Expected: 200** — `{ "recorded": true }`
+
+**Error cases**
+
+| Scenario              | Expected        |
+| --------------------- | --------------- |
+| Slug not found        | `404 Not Found` |
+| Blog not published    | `404 Not Found` |
+
+---
+
+### 53. Get Blog Analytics (Author only)
+
+**`GET {{base_url}}/blogs/:slug/analytics`**
+
+Returns view stats for a blog. Only the blog's author can access this.
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200**
+
+```json
+{
+  "data": {
+    "totalViews": 124,
+    "last30Days": 87,
+    "last7Days": 23
+  }
+}
+```
+
+**Error cases**
+
+| Scenario       | Expected        |
+| -------------- | --------------- |
+| Not the author | `404 Not Found` |
+
+---
+
+### 54. Get Company Analytics (Owner only)
+
+**`GET {{base_url}}/companies/:handle/analytics`**
+
+Returns aggregate analytics for a company. Only company owners can access this.
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200**
+
+```json
+{
+  "data": {
+    "totalBlogs": 8,
+    "publishedBlogs": 6,
+    "totalViews": 412,
+    "totalFollowers": 34
+  }
+}
+```
+
+**Error cases**
+
+| Scenario   | Expected        |
+| ---------- | --------------- |
+| Not owner  | `404 Not Found` |
+
+---
+
+## Notifications Endpoints
+
+All notifications endpoints require JWT.
+
+### 55. Get My Notifications (Paginated)
+
+**`GET {{base_url}}/notifications?page=1&limit=20`**
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200**
+
+```json
+{
+  "data": {
+    "data": [
+      {
+        "id": "uuid",
+        "type": "follow",
+        "message": "Someone followed you.",
+        "isRead": false,
+        "metadata": null,
+        "createdAt": "2026-05-21T..."
+      }
+    ],
+    "meta": { "page": 1, "limit": 20, "total": 3, "hasNextPage": false }
+  }
+}
+```
+
+---
+
+### 56. Get Unread Count
+
+**`GET {{base_url}}/notifications/unread-count`**
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200** — `{ "data": { "count": 3 } }`
+
+---
+
+### 57. Mark Notification as Read
+
+**`PATCH {{base_url}}/notifications/:id/read`**
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200** — the updated notification with `isRead: true`.
+
+**Error cases**
+
+| Scenario              | Expected        |
+| --------------------- | --------------- |
+| Notification not found or belongs to different user | `404 Not Found` |
+
+---
+
+### 58. Mark All Notifications as Read
+
+**`POST {{base_url}}/notifications/read-all`**
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200** — `{ "data": { "message": "All notifications marked as read." } }`
 
 ---
 

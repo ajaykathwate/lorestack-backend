@@ -21,6 +21,10 @@ import { HealthModule } from './modules/health/health.module';
 import { MailModule } from './modules/mail/mail.module';
 import { UsersModule } from './modules/users/users.module';
 import { AppLoggerModule } from './shared/logger/logger.module';
+import { SearchModule } from './modules/search/search.module';
+import { FollowsModule } from './modules/follows/follows.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -61,6 +65,10 @@ import { AppLoggerModule } from './shared/logger/logger.module';
     HealthModule,
     UsersModule,
     AppLoggerModule,
+    SearchModule,
+    FollowsModule,
+    AnalyticsModule,
+    NotificationsModule,
   ],
   providers: [
     {

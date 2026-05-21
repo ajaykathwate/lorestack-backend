@@ -13,10 +13,11 @@ import { randomBytes } from 'crypto';
 
 import { permissionChecker } from '@common/permissions/permission-checker';
 import { mapPrismaError } from '@database/prisma/prisma.exceptions';
+import { PaginatedResponse } from '@common/dto/paginated-response.dto';
 import { JwtUser } from '@modules/auth/types/jwt-user.type';
-import { BlogEntity } from '@modules/blogs/entities/blog.entity';
-import { BlogsRepository } from '@modules/blogs/repositories/blogs.repository';
-import { toBlogEntity } from '@modules/blogs/mappers/blog.mappers';
+import { BlogSummaryEntity } from '@modules/blogs/entities/blog-summary.entity';
+import { BlogsRepository, SortOrder } from '@modules/blogs/repositories/blogs.repository';
+import { toBlogSummaryEntity } from '@modules/blogs/mappers/blog.mappers';
 import { MailService } from '@modules/mail/mail.service';
 
 import { CreateCompanyDto } from '../dto/create-company.dto';
@@ -82,6 +83,17 @@ export class CompaniesService {
     return new CompanyEntity(company);
   }
 
+  async findById(id: string): Promise<CompanyEntity> {
+    const company = await this.repo.findById(id);
+    if (!company) throw new NotFoundException('Company not found.');
+    return new CompanyEntity(company);
+  }
+
+  async findFeatured(limit: number): Promise<CompanyEntity[]> {
+    const companies = await this.repo.findFeatured(limit);
+    return companies.map((c) => new CompanyEntity(c));
+  }
+
   async update(handle: string, dto: UpdateCompanyDto, requester: JwtUser): Promise<CompanyEntity> {
     const company = await this.repo.findByHandle(handle);
     if (!company) throw new NotFoundException('Company not found.');
@@ -101,12 +113,21 @@ export class CompaniesService {
     }
   }
 
-  async findPublishedBlogs(handle: string): Promise<BlogEntity[]> {
+  async findPublishedBlogs(
+    handle: string,
+    page = 1,
+    limit = 20,
+    sort: SortOrder = 'newest',
+  ): Promise<PaginatedResponse<BlogSummaryEntity>> {
     const company = await this.repo.findByHandle(handle);
     if (!company) throw new NotFoundException('Company not found.');
 
-    const blogs = await this.blogsRepo.findPublishedByCompanyId(company.id);
-    return blogs.map(toBlogEntity);
+    const skip = (page - 1) * limit;
+    const [blogs, total] = await Promise.all([
+      this.blogsRepo.findPublishedByCompanyId(company.id, { skip, take: limit, sort }),
+      this.blogsRepo.countPublishedByCompanyId(company.id),
+    ]);
+    return new PaginatedResponse(blogs.map(toBlogSummaryEntity), total, page, limit);
   }
 
   // ── Members ───────────────────────────────────────────────────────────────────
@@ -192,6 +213,66 @@ export class CompaniesService {
 
     this.mailService.sendCompanyInviteEmail(dto.email, company.name, token).catch((err) =>
       this.logger.warn(`Invite email failed: ${err instanceof Error ? err.message : String(err)}`),
+    );
+  }
+
+  async listInvites(handle: string, requester: JwtUser) {
+    const company = await this.repo.findByHandle(handle);
+    if (!company) throw new NotFoundException('Company not found.');
+
+    const membership = await this.repo.findMembership(company.id, requester.sub);
+    if (!permissionChecker.canInviteAuthors(requester.platformRole, membership?.role ?? null)) {
+      throw new ForbiddenException('Only company owners can view invites.');
+    }
+
+    return this.repo.findPendingInvites(company.id);
+  }
+
+  async revokeInvite(handle: string, inviteId: string, requester: JwtUser): Promise<void> {
+    const company = await this.repo.findByHandle(handle);
+    if (!company) throw new NotFoundException('Company not found.');
+
+    const membership = await this.repo.findMembership(company.id, requester.sub);
+    if (!permissionChecker.canInviteAuthors(requester.platformRole, membership?.role ?? null)) {
+      throw new ForbiddenException('Only company owners can revoke invites.');
+    }
+
+    const invite = await this.repo.findInviteById(inviteId);
+    if (!invite || invite.companyId !== company.id) throw new NotFoundException('Invite not found.');
+
+    await this.repo.deleteInvite(inviteId);
+  }
+
+  async resendInvite(handle: string, inviteId: string, requester: JwtUser): Promise<void> {
+    const company = await this.repo.findByHandle(handle);
+    if (!company) throw new NotFoundException('Company not found.');
+
+    const membership = await this.repo.findMembership(company.id, requester.sub);
+    if (!permissionChecker.canInviteAuthors(requester.platformRole, membership?.role ?? null)) {
+      throw new ForbiddenException('Only company owners can resend invites.');
+    }
+
+    const invite = await this.repo.findInviteById(inviteId);
+    if (!invite || invite.companyId !== company.id) throw new NotFoundException('Invite not found.');
+
+    if (invite.status !== InviteStatus.pending) {
+      throw new BadRequestException('Only pending invites can be resent.');
+    }
+
+    const newToken = randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    await this.repo.deleteInvite(inviteId);
+    await this.repo.createInvite({
+      company: { connect: { id: company.id } },
+      invitedBy: { connect: { id: requester.sub } },
+      invitedEmail: invite.invitedEmail,
+      token: newToken,
+      expiresAt,
+    });
+
+    this.mailService.sendCompanyInviteEmail(invite.invitedEmail, company.name, newToken).catch((err) =>
+      this.logger.warn(`Resend invite email failed: ${err instanceof Error ? err.message : String(err)}`),
     );
   }
 

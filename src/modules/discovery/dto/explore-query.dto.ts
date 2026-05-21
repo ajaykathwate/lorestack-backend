@@ -28,6 +28,11 @@ export class ExploreQueryDto {
   @IsString()
   dateRange?: 'week' | 'month' | '6months' | 'all';
 
+  @ApiPropertyOptional({ enum: ['newest', 'oldest'], default: 'newest' })
+  @IsOptional()
+  @IsString()
+  sort?: 'newest' | 'oldest' = 'newest';
+
   @ApiPropertyOptional({ default: 1, minimum: 1 })
   @IsOptional()
   @Type(() => Number)

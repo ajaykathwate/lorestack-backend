@@ -8,19 +8,19 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOkResponse, ApiQuery, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser } from '@common/decorators/current-user.decorator';
 import { Public } from '@common/decorators/public.decorator';
 import { JwtUser } from '@modules/auth/types/jwt-user.type';
 
-import { BlogEntity } from '@modules/blogs/entities/blog.entity';
-
 import { CreateCompanyDto } from '../dto/create-company.dto';
 import { CreateMilestoneDto } from '../dto/create-milestone.dto';
 import { InviteAuthorDto } from '../dto/invite-author.dto';
 import { UpdateCompanyDto } from '../dto/update-company.dto';
+import { CompanyEntity } from '../entities/company.entity';
 import { CompaniesService } from '../services/companies.service';
 
 @ApiTags('companies')
@@ -40,6 +40,22 @@ export class CompaniesController {
   @ApiOkResponse({ description: 'Returns all companies the authenticated user is a member of.' })
   getMine(@CurrentUser() user: JwtUser) {
     return this.companiesService.findMine(user.sub);
+  }
+
+  // Static routes before /:handle to avoid shadowing
+  @Get('featured')
+  @Public()
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiOkResponse({ type: CompanyEntity, isArray: true, description: 'Returns featured companies.' })
+  getFeatured(@Query('limit') limit = 6) {
+    return this.companiesService.findFeatured(+limit);
+  }
+
+  @Get('by-id/:id')
+  @Public()
+  @ApiOkResponse({ type: CompanyEntity, description: 'Returns a company by its UUID.' })
+  getById(@Param('id') id: string) {
+    return this.companiesService.findById(id);
   }
 
   @Get(':handle')
@@ -62,9 +78,17 @@ export class CompaniesController {
 
   @Get(':handle/blogs')
   @Public()
-  @ApiOkResponse({ type: BlogEntity, isArray: true, description: 'Returns published blogs for a company, newest first.' })
-  getBlogs(@Param('handle') handle: string): Promise<BlogEntity[]> {
-    return this.companiesService.findPublishedBlogs(handle);
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({ name: 'sort', required: false, enum: ['newest', 'oldest'] })
+  @ApiOkResponse({ description: 'Returns paginated published blogs for a company.' })
+  getBlogs(
+    @Param('handle') handle: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 20,
+    @Query('sort') sort: 'newest' | 'oldest' = 'newest',
+  ) {
+    return this.companiesService.findPublishedBlogs(handle, +page, +limit, sort);
   }
 
   // ── Members ───────────────────────────────────────────────────────────────────
@@ -100,6 +124,37 @@ export class CompaniesController {
     @CurrentUser() user: JwtUser,
   ) {
     return this.companiesService.inviteAuthor(handle, dto, user);
+  }
+
+  @Get(':handle/invites')
+  @ApiBearerAuth()
+  @ApiOkResponse({ description: 'Returns all pending invites for the company. Requires owner role.' })
+  listInvites(@Param('handle') handle: string, @CurrentUser() user: JwtUser) {
+    return this.companiesService.listInvites(handle, user);
+  }
+
+  @Delete(':handle/invites/:inviteId')
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOkResponse({ description: 'Revokes a pending invite. Requires owner role.' })
+  revokeInvite(
+    @Param('handle') handle: string,
+    @Param('inviteId') inviteId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.companiesService.revokeInvite(handle, inviteId, user);
+  }
+
+  @Post(':handle/invites/:inviteId/resend')
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOkResponse({ description: 'Resends a pending invite email. Requires owner role.' })
+  resendInvite(
+    @Param('handle') handle: string,
+    @Param('inviteId') inviteId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    return this.companiesService.resendInvite(handle, inviteId, user);
   }
 
   @Post('invites/:token/accept')

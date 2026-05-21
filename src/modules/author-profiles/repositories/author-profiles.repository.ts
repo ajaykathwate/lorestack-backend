@@ -15,6 +15,10 @@ export class AuthorProfilesRepository {
     return this.prisma.authorProfile.findUnique({ where: { username } });
   }
 
+  findById(id: string) {
+    return this.prisma.authorProfile.findUnique({ where: { id } });
+  }
+
   update(userId: string, data: Prisma.AuthorProfileUpdateInput) {
     return this.prisma.authorProfile.update({ where: { userId }, data });
   }

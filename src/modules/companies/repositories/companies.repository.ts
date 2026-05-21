@@ -72,6 +72,17 @@ export class CompaniesRepository {
     });
   }
 
+  findPendingInvites(companyId: string) {
+    return this.prisma.companyInvite.findMany({
+      where: { companyId, status: InviteStatus.pending },
+      orderBy: { expiresAt: 'asc' },
+    });
+  }
+
+  findInviteById(id: string) {
+    return this.prisma.companyInvite.findUnique({ where: { id } });
+  }
+
   findInviteByToken(token: string) {
     return this.prisma.companyInvite.findUnique({
       where: { token },
@@ -87,6 +98,36 @@ export class CompaniesRepository {
     return this.prisma.companyInvite.update({
       where: { id },
       data: { status, ...(acceptedAt ? { acceptedAt } : {}) },
+    });
+  }
+
+  deleteInvite(id: string) {
+    return this.prisma.companyInvite.delete({ where: { id } });
+  }
+
+  findPublishedByCompanyIdPaginated(
+    companyId: string,
+    skip: number,
+    take: number,
+    sort: 'newest' | 'oldest' = 'newest',
+  ) {
+    return this.prisma.blog.findMany({
+      where: { companyId, status: 'published' },
+      orderBy: { publishedAt: sort === 'oldest' ? 'asc' : 'desc' },
+      skip,
+      take,
+    });
+  }
+
+  countFeatured() {
+    return this.prisma.company.count({ where: { featured: true, isPublic: true } });
+  }
+
+  findFeatured(limit: number) {
+    return this.prisma.company.findMany({
+      where: { featured: true, isPublic: true },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
     });
   }
 

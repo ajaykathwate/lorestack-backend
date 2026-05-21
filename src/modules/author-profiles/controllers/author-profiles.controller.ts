@@ -1,9 +1,8 @@
-import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiOkResponse, ApiQuery, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser } from '@common/decorators/current-user.decorator';
 import { Public } from '@common/decorators/public.decorator';
-import { BlogEntity } from '@modules/blogs/entities/blog.entity';
 import { JwtUser } from '@modules/auth/types/jwt-user.type';
 
 import { UpdateAuthorProfileDto } from '../dto/update-author-profile.dto';
@@ -33,11 +32,26 @@ export class AuthorProfilesController {
   }
 
   // Static routes before /:username to avoid shadowing
+  @Get('by-id/:id')
+  @Public()
+  @ApiOkResponse({ type: AuthorProfileEntity })
+  findById(@Param('id') id: string): Promise<AuthorProfileEntity> {
+    return this.authorProfilesService.findById(id);
+  }
+
   @Get(':username/blogs')
   @Public()
-  @ApiOkResponse({ type: BlogEntity, isArray: true, description: "Returns an author's published blogs, newest first." })
-  getAuthorBlogs(@Param('username') username: string): Promise<BlogEntity[]> {
-    return this.authorProfilesService.findPublishedBlogs(username);
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({ name: 'sort', required: false, enum: ['newest', 'oldest'] })
+  @ApiOkResponse({ description: "Returns an author's paginated published blogs." })
+  getAuthorBlogs(
+    @Param('username') username: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 20,
+    @Query('sort') sort: 'newest' | 'oldest' = 'newest',
+  ) {
+    return this.authorProfilesService.findPublishedBlogs(username, +page, +limit, sort);
   }
 
   @Get(':username')

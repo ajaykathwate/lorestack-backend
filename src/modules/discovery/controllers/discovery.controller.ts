@@ -1,7 +1,8 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { ApiOkResponse, ApiQuery, ApiTags } from '@nestjs/swagger';
 
 import { Public } from '@common/decorators/public.decorator';
+import { PaginatedResponse } from '@common/dto/paginated-response.dto';
 import { BlogSummaryEntity } from '@modules/blogs/entities/blog-summary.entity';
 import { toBlogSummaryEntity } from '@modules/blogs/mappers/blog.mappers';
 import { BlogsRepository } from '@modules/blogs/repositories/blogs.repository';
@@ -15,20 +16,30 @@ export class DiscoveryController {
   constructor(private readonly blogsRepo: BlogsRepository) {}
 
   @Get('explore')
-  @ApiOkResponse({ type: BlogSummaryEntity, isArray: true, description: 'Paginated published blogs with optional filters.' })
-  async explore(@Query() query: ExploreQueryDto): Promise<BlogSummaryEntity[]> {
+  @ApiOkResponse({ description: 'Paginated published blogs with optional filters.' })
+  async explore(@Query() query: ExploreQueryDto): Promise<PaginatedResponse<BlogSummaryEntity>> {
     const since = this.resolveSince(query.dateRange);
     const skip = (query.page - 1) * query.limit;
-
-    const blogs = await this.blogsRepo.findPublished({
+    const filters = {
       articleType: query.type,
       tagSlug: query.tag,
       companyId: query.companyId,
       since,
-      skip,
-      take: query.limit,
-    });
+    };
 
+    const [blogs, total] = await Promise.all([
+      this.blogsRepo.findPublished({ ...filters, skip, take: query.limit, sort: query.sort }),
+      this.blogsRepo.countPublished(filters),
+    ]);
+
+    return new PaginatedResponse(blogs.map(toBlogSummaryEntity), total, query.page, query.limit);
+  }
+
+  @Get('explore/trending')
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiOkResponse({ type: BlogSummaryEntity, isArray: true, description: 'Trending blogs from the past 7 days.' })
+  async trending(@Query('limit') limit = 5): Promise<BlogSummaryEntity[]> {
+    const blogs = await this.blogsRepo.findTrending(+limit);
     return blogs.map(toBlogSummaryEntity);
   }
 

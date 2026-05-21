@@ -8,8 +8,9 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOkResponse, ApiQuery, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser } from '@common/decorators/current-user.decorator';
 import { Public } from '@common/decorators/public.decorator';
@@ -37,9 +38,22 @@ export class BlogsController {
   // Static routes MUST appear before /:slug to prevent shadowing
   @Get('me')
   @ApiBearerAuth()
-  @ApiOkResponse({ type: BlogSummaryEntity, isArray: true, description: "Returns the authenticated user's blogs (summaries, no body)." })
-  myBlogs(@CurrentUser() user: JwtUser): Promise<BlogSummaryEntity[]> {
-    return this.blogsService.findMyBlogs(user.sub);
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiOkResponse({ description: "Returns the authenticated user's paginated blogs (summaries, no body)." })
+  myBlogs(
+    @CurrentUser() user: JwtUser,
+    @Query('page') page = 1,
+    @Query('limit') limit = 20,
+  ) {
+    return this.blogsService.findMyBlogs(user.sub, +page, +limit);
+  }
+
+  @Get('me/stats')
+  @ApiBearerAuth()
+  @ApiOkResponse({ description: 'Returns blog counts by status for the authenticated user.' })
+  myStats(@CurrentUser() user: JwtUser) {
+    return this.blogsService.getMyStats(user.sub);
   }
 
   @Get(':slug')
