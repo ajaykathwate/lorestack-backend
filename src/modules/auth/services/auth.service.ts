@@ -137,21 +137,27 @@ export class AuthService {
     return { ...authResponse, onboardingRequired: !hasProfile };
   }
 
-  async onboarding(userId: string, dto: OnboardingDto) {
+  async onboarding(userId: string, dto: OnboardingDto, avatar?: Express.Multer.File) {
     const existing = await this.prisma.authorProfile.findUnique({ where: { userId } });
     if (existing) {
       throw new ConflictException('Onboarding already completed.');
     }
 
-    const username = await this.generateUniqueUsername(dto.displayName);
+    let username: string;
+    if (dto.username) {
+      const taken = await this.prisma.authorProfile.findUnique({ where: { username: dto.username } });
+      if (taken) {
+        throw new ConflictException('This username is already taken. Please choose another.');
+      }
+      username = dto.username;
+    } else {
+      username = await this.generateUniqueUsername(dto.displayName);
+    }
+
+    const avatarUrl = avatar ? `/uploads/avatars/${avatar.filename}` : null;
 
     const profile = await this.prisma.authorProfile.create({
-      data: {
-        userId,
-        displayName: dto.displayName,
-        username,
-        avatarUrl: dto.avatarUrl ?? null,
-      },
+      data: { userId, displayName: dto.displayName, username, avatarUrl },
     });
 
     return profile;

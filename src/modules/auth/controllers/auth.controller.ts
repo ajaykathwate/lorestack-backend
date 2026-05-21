@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
-import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiConsumes, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 
 import { CurrentUser } from '@common/decorators/current-user.decorator';
@@ -8,6 +9,7 @@ import { Public } from '@common/decorators/public.decorator';
 import { RequestContext } from '@common/decorators/request-context.decorator';
 import { RequestContextData } from '@common/interfaces/request-context.interface';
 
+import { avatarMulterOptions } from '@common/config/multer-avatar.config';
 import { AuthService } from '../services/auth.service';
 import { ChangePasswordDto } from '../dto/change-password.dto';
 import { ForgotPasswordDto } from '../dto/forgot-password.dto';
@@ -66,9 +68,15 @@ export class AuthController {
 
   @Post('onboarding')
   @ApiBearerAuth()
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('avatar', avatarMulterOptions))
   @ApiOkResponse({ description: 'Creates the author profile for the authenticated user.' })
-  onboarding(@CurrentUser() user: JwtUser, @Body() onboardingDto: OnboardingDto) {
-    return this.authService.onboarding(user.sub, onboardingDto);
+  onboarding(
+    @CurrentUser() user: JwtUser,
+    @Body() onboardingDto: OnboardingDto,
+    @UploadedFile() avatar?: Express.Multer.File,
+  ) {
+    return this.authService.onboarding(user.sub, onboardingDto, avatar);
   }
 
   @Post('refresh')

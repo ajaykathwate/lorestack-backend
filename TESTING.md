@@ -204,25 +204,25 @@ Google redirects to the callback which returns the same token shape as login. Th
 
 **`POST {{base_url}}/auth/onboarding`**
 
-Requires JWT. Call after email verification. Can only be completed once.
+Requires JWT. Call after email verification (or immediately after Google OAuth). Can only be completed once.
+
+This endpoint accepts **`multipart/form-data`** — use the **Body → form-data** tab in Postman (not raw JSON).
 
 **Headers**
 
 ```
-Content-Type: application/json
 Authorization: Bearer {{access_token}}
 ```
 
-**Body**
+> Do **not** set `Content-Type` manually — Postman sets it automatically with the correct boundary for form-data.
 
-```json
-{
-  "displayName": "Ajay Kathwate",
-  "avatarUrl": "https://example.com/avatar.png"
-}
-```
+**Form-data fields**
 
-`avatarUrl` is optional. `displayName` is required (min 2 chars).
+| Key           | Type | Required | Notes                                                                                        |
+| ------------- | ---- | -------- | -------------------------------------------------------------------------------------------- |
+| `displayName` | Text | Yes      | Min 2 chars, max 100                                                                         |
+| `username`    | Text | No       | 3–50 chars, lowercase letters/numbers/hyphens/underscores, must start with letter or number. Auto-generated from `displayName` if omitted. |
+| `avatar`      | File | No       | JPEG, PNG, WebP, or GIF. Max 5 MB. Upload the image file here.                              |
 
 **Expected: 201**
 
@@ -234,22 +234,28 @@ Authorization: Bearer {{access_token}}
     "displayName": "Ajay Kathwate",
     "username": "ajay-kathwate",
     "bio": null,
-    "avatarUrl": null,
+    "avatarUrl": "/uploads/avatars/3f9a...b1.png",
     "expertiseTags": [],
     "createdAt": "2026-05-20T..."
   }
 }
 ```
 
-`username` is auto-generated from `displayName` (lowercased, hyphenated). Collisions append `-1`, `-2`.
+`avatarUrl` is `null` when no file is uploaded. When uploaded, the URL is relative to the API server (e.g. `http://localhost:3001/uploads/avatars/<filename>`).
+
+`username` is auto-generated from `displayName` (lowercased, hyphenated) when not supplied. Collisions append `-1`, `-2`, etc.
 
 **Error cases**
 
-| Scenario                | Expected           |
-| ----------------------- | ------------------ |
-| No auth header          | `401 Unauthorized` |
-| Already onboarded       | `409 Conflict`     |
-| `displayName` < 2 chars | `400 Bad Request`  |
+| Scenario                        | Expected                                   |
+| ------------------------------- | ------------------------------------------ |
+| No auth header                  | `401 Unauthorized`                         |
+| Already onboarded               | `409 Conflict`                             |
+| `displayName` missing / < 2 chars | `400 Bad Request`                        |
+| `username` already taken        | `409 Conflict`                             |
+| `username` has uppercase / spaces | `400 Bad Request`                        |
+| File is not an image            | `400 Bad Request`                          |
+| File > 5 MB                     | `400 Bad Request` / `413 Payload Too Large`|
 
 ---
 
@@ -1450,7 +1456,7 @@ Run these in order to exercise the complete user journey end-to-end.
 1. **Register** — `POST /auth/register` → check for verification email
 2. **Verify email** — `POST /auth/verify-email` with token from DB
 3. **Login** — `POST /auth/login` → save tokens to env
-4. **Onboarding** — `POST /auth/onboarding` with `displayName`
+4. **Onboarding** — `POST /auth/onboarding` (multipart/form-data) with `displayName`; optionally `username` and `avatar` file
 5. **Get profile** — `GET /author-profiles/me` → confirm profile exists
 6. **Update profile** — `PATCH /author-profiles/me` with `bio` → confirm partial update
 
