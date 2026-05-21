@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   forwardRef,
 } from '@nestjs/common';
@@ -29,6 +30,8 @@ import { CompaniesRepository } from '../repositories/companies.repository';
 
 @Injectable()
 export class CompaniesService {
+  private readonly logger = new Logger(CompaniesService.name);
+
   constructor(
     private readonly repo: CompaniesRepository,
     @Inject(forwardRef(() => BlogsRepository))
@@ -187,7 +190,9 @@ export class CompaniesService {
       expiresAt,
     });
 
-    await this.mailService.sendCompanyInviteEmail(dto.email, company.name, token);
+    this.mailService.sendCompanyInviteEmail(dto.email, company.name, token).catch((err) =>
+      this.logger.warn(`Invite email failed: ${err instanceof Error ? err.message : String(err)}`),
+    );
   }
 
   async acceptInvite(token: string, requester: JwtUser): Promise<CompanyEntity> {

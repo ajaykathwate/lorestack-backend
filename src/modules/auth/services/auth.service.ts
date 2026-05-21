@@ -214,7 +214,9 @@ export class AuthService {
         },
       });
 
-      await this.mailService.sendForgotPasswordEmail(user.email, displayName, resetUrl);
+      this.mailService.sendForgotPasswordEmail(user.email, displayName, resetUrl).catch((err) =>
+        this.logger.warn(`Forgot-password email failed: ${err instanceof Error ? err.message : String(err)}`),
+      );
       await this.audit('forgot_password_requested', user.id, context);
     }
 
@@ -323,7 +325,9 @@ export class AuthService {
       }),
     ]);
 
-    await this.mailService.sendWelcomeEmail(storedToken.user.email, displayName);
+    this.mailService.sendWelcomeEmail(storedToken.user.email, displayName).catch((err) =>
+      this.logger.warn(`Welcome email failed: ${err instanceof Error ? err.message : String(err)}`),
+    );
     await this.audit('email_verified', storedToken.userId, context);
 
     return { message: 'Email verified successfully' };
@@ -337,7 +341,9 @@ export class AuthService {
       data: { tokenHash: hashToken(token), userId, expiresAt: hoursFromNow(24) },
     });
 
-    await this.mailService.sendVerifyEmail(email, displayName, verificationUrl);
+    this.mailService.sendVerifyEmail(email, displayName, verificationUrl).catch((err) =>
+      this.logger.warn(`Verification email failed: ${err instanceof Error ? err.message : String(err)}`),
+    );
   }
 
   private async assertLoginAllowed(email: string) {
