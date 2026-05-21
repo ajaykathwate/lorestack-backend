@@ -19,11 +19,11 @@
     "prisma:generate": "prisma generate && node scripts/fix-prisma-pnpm.mjs",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "prisma:seed": "tsx prisma/seed.ts",
+    "prisma:seed": "tsx seed/index.ts",
     "prepare": "node scripts/prepare.mjs"
   },
   "prisma": {
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx seed/index.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",
