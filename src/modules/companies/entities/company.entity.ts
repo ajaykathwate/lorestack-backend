@@ -35,6 +35,9 @@ export class CompanyEntity {
   @ApiProperty({ type: [String] })
   techStack: string[];
 
+  @ApiProperty({ type: [String] })
+  galleryImages: string[];
+
   @ApiPropertyOptional({ nullable: true })
   founderSocialLink?: string | null;
 

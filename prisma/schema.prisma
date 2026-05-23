@@ -240,6 +240,7 @@ model Company {
   industry          IndustryType?
   stage             CompanyStage?
   techStack         String[]
+  galleryImages     String[]
   founderSocialLink String?
   isPublic          Boolean       @default(true)
   featured          Boolean       @default(false)

@@ -615,6 +615,10 @@ Authorization: Bearer {{access_token}}
   "industry": "dev_tools",
   "stage": "early_stage",
   "techStack": ["TypeScript", "NestJS", "PostgreSQL"],
+  "galleryImages": [
+    "https://cdn.example.com/office.png",
+    "https://cdn.example.com/team.png"
+  ],
   "founderSocialLink": "https://twitter.com/founder",
   "isPublic": true
 }
@@ -633,6 +637,7 @@ Authorization: Bearer {{access_token}}
     "industry": "dev_tools",
     "stage": "early_stage",
     "techStack": ["TypeScript", "NestJS", "PostgreSQL"],
+    "galleryImages": ["https://cdn.example.com/office.png", "https://cdn.example.com/team.png"],
     "isPublic": true,
     "createdAt": "2026-05-20T...",
     "updatedAt": "2026-05-20T..."
@@ -720,11 +725,18 @@ Authorization: Bearer {{access_token}}
 {
   "tagline": "New tagline here",
   "stage": "growth",
-  "techStack": ["TypeScript", "NestJS", "Redis"]
+  "techStack": ["TypeScript", "NestJS", "Redis"],
+  "galleryImages": [
+    "https://cdn.example.com/office.png",
+    "https://cdn.example.com/team.png",
+    "https://cdn.example.com/product.png"
+  ]
 }
 ```
 
 Note: `handle` cannot be changed via this endpoint (omitted from `UpdateCompanyDto`).
+
+`galleryImages` replaces the entire array on each update — send the full desired list, not a delta. Send `[]` to clear all gallery images.
 
 **Error cases**
 

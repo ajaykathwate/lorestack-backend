@@ -59,6 +59,7 @@ export class CompaniesService {
         industry: dto.industry,
         stage: dto.stage,
         techStack: dto.techStack ?? [],
+        galleryImages: dto.galleryImages ?? [],
         founderSocialLink: dto.founderSocialLink,
         isPublic: dto.isPublic ?? true,
         creator: { connect: { id: userId } },

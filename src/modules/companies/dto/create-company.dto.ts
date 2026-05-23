@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { CompanyStage, IndustryType } from '@prisma/client';
 import { Transform } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsEnum,
@@ -62,6 +63,18 @@ export class CreateCompanyDto {
   @IsString({ each: true })
   @Transform(({ value }: { value: unknown }) => (Array.isArray(value) ? value : []))
   techStack?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    maxItems: 5,
+    example: ['https://cdn.example.com/office.png', 'https://cdn.example.com/team.png'],
+    description: 'Up to 5 gallery image URLs for the company page (team photos, office, product screenshots, etc.)',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsUrl({}, { each: true })
+  @ArrayMaxSize(5)
+  galleryImages?: string[];
 
   @ApiPropertyOptional({ example: 'https://twitter.com/founderhandle' })
   @IsOptional()
