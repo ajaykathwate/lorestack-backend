@@ -43,6 +43,18 @@ export class CompaniesController {
   }
 
   // Static routes before /:handle to avoid shadowing
+  @Get()
+  @Public()
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiOkResponse({ description: 'Paginated list of all public companies.' })
+  getAll(
+    @Query('page') page = 1,
+    @Query('limit') limit = 20,
+  ) {
+    return this.companiesService.findAllPublic(+page, +limit);
+  }
+
   @Get('featured')
   @Public()
   @ApiQuery({ name: 'limit', required: false, type: Number })

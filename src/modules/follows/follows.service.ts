@@ -122,4 +122,33 @@ export class FollowsService {
   async getTagFollowersCount(tagId: string): Promise<number> {
     return this.prisma.tagFollow.count({ where: { tagId } });
   }
+
+  // ── My following lists ────────────────────────────────────────────────────────
+
+  async getFollowingAuthors(userId: string) {
+    const rows = await this.prisma.authorFollow.findMany({
+      where: { followerId: userId },
+      include: { authorProfile: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map((r) => r.authorProfile);
+  }
+
+  async getFollowingCompanies(userId: string) {
+    const rows = await this.prisma.companyFollow.findMany({
+      where: { followerId: userId },
+      include: { company: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map((r) => r.company);
+  }
+
+  async getFollowingTags(userId: string) {
+    const rows = await this.prisma.tagFollow.findMany({
+      where: { followerId: userId },
+      include: { tag: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map((r) => r.tag);
+  }
 }

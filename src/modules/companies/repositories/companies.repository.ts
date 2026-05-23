@@ -119,6 +119,19 @@ export class CompaniesRepository {
     });
   }
 
+  findAllPublic(skip: number, take: number) {
+    return this.prisma.company.findMany({
+      where: { isPublic: true },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take,
+    });
+  }
+
+  countAllPublic() {
+    return this.prisma.company.count({ where: { isPublic: true } });
+  }
+
   countFeatured() {
     return this.prisma.company.count({ where: { featured: true, isPublic: true } });
   }

@@ -2,13 +2,18 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { BlogStatus } from '@prisma/client';
 
 import { PrismaService } from '@database/prisma/prisma.service';
+import { BlogsRepository } from '@modules/blogs/repositories/blogs.repository';
+import { toBlogSummaryEntity } from '@modules/blogs/mappers/blog.mappers';
 
 import { ReadProgressDto } from './dto/read-progress.dto';
 import { ShareBlogDto } from './dto/share-blog.dto';
 
 @Injectable()
 export class EngagementService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly blogsRepo: BlogsRepository,
+  ) {}
 
   // ── Likes ─────────────────────────────────────────────────────────────────────
 
@@ -148,6 +153,29 @@ export class EngagementService {
     ]);
 
     return { isLiked, isSaved };
+  }
+
+  // ── Saved articles ────────────────────────────────────────────────────────────
+
+  async getMySavedBlogs(userId: string, page: number, limit: number) {
+    const skip = (page - 1) * limit;
+
+    const [saves, total] = await Promise.all([
+      this.prisma.blogSave.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        select: { blogId: true },
+      }),
+      this.prisma.blogSave.count({ where: { userId } }),
+    ]);
+
+    const blogIds = saves.map((s) => s.blogId);
+    const blogs = await Promise.all(blogIds.map((id) => this.blogsRepo.findById(id)));
+    const entities = blogs.filter(Boolean).map((b) => toBlogSummaryEntity(b!));
+
+    return { data: entities, total, page, limit };
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────────

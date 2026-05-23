@@ -1,4 +1,4 @@
-import { Controller, Delete, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
+import { Controller, Delete, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser } from '@common/decorators/current-user.decorator';
@@ -11,6 +11,26 @@ import { FollowsService } from './follows.service';
 @Controller({ version: '1' })
 export class FollowsController {
   constructor(private readonly followsService: FollowsService) {}
+
+  // ── My following lists ────────────────────────────────────────────────────────
+
+  @Get('me/following/authors')
+  @ApiOkResponse({ description: 'Returns author profiles the authenticated user follows.' })
+  getFollowingAuthors(@CurrentUser() user: JwtUser) {
+    return this.followsService.getFollowingAuthors(user.sub);
+  }
+
+  @Get('me/following/companies')
+  @ApiOkResponse({ description: 'Returns companies the authenticated user follows.' })
+  getFollowingCompanies(@CurrentUser() user: JwtUser) {
+    return this.followsService.getFollowingCompanies(user.sub);
+  }
+
+  @Get('me/following/tags')
+  @ApiOkResponse({ description: 'Returns tags the authenticated user follows.' })
+  getFollowingTags(@CurrentUser() user: JwtUser) {
+    return this.followsService.getFollowingTags(user.sub);
+  }
 
   // ── Author follows ────────────────────────────────────────────────────────────
 

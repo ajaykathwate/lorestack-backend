@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 
@@ -14,6 +14,19 @@ import { EngagementService } from './engagement.service';
 @Controller({ version: '1' })
 export class EngagementController {
   constructor(private readonly engagementService: EngagementService) {}
+
+  // ── Saved articles ────────────────────────────────────────────────────────────
+
+  @Get('me/saved')
+  @ApiBearerAuth()
+  @ApiOkResponse({ description: "Returns the authenticated user's saved articles, newest first. Paginated." })
+  getMySavedBlogs(
+    @CurrentUser() user: JwtUser,
+    @Query('page') page = 1,
+    @Query('limit') limit = 20,
+  ) {
+    return this.engagementService.getMySavedBlogs(user.sub, +page, +limit);
+  }
 
   // ── Likes ─────────────────────────────────────────────────────────────────────
 

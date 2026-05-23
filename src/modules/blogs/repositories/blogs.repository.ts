@@ -9,6 +9,7 @@ const blogInclude = Prisma.validator<Prisma.BlogInclude>()({
   tags: { include: { tag: true } },
   author: { include: { authorProfile: true } },
   company: true,
+  engagementCounters: true,
 });
 
 export type BlogWithTags = Prisma.BlogGetPayload<{ include: typeof blogInclude }>;

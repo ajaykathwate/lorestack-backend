@@ -62,6 +62,15 @@ export class BlogSummaryEntity {
   @ApiPropertyOptional({ type: () => EmbeddedCompany, nullable: true })
   company?: EmbeddedCompany | null;
 
+  @ApiProperty()
+  likesCount: number;
+
+  @ApiProperty()
+  savesCount: number;
+
+  @ApiProperty()
+  viewsCount: number;
+
   constructor(partial: Partial<BlogSummaryEntity>) {
     Object.assign(this, partial);
   }

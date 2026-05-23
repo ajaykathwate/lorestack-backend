@@ -1,12 +1,12 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOkResponse, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { Type } from 'class-transformer';
 import { IsInt, Max, Min } from 'class-validator';
 
 import { Public } from '@common/decorators/public.decorator';
 
-import { SearchService } from './search.service';
+import { SearchService, SearchType } from './search.service';
 
 class SearchQueryDto {
   @IsString()
@@ -18,8 +18,12 @@ class SearchQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(20)
+  @Max(50)
   limit = 10;
+
+  @IsOptional()
+  @IsEnum(['all', 'articles', 'authors', 'companies'])
+  type: SearchType = 'all';
 }
 
 @ApiTags('search')
@@ -30,9 +34,10 @@ export class SearchController {
 
   @Get()
   @ApiQuery({ name: 'q', required: true, description: 'Search query' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Max results per type (default 10)' })
-  @ApiOkResponse({ description: 'Returns matching blogs, companies, and authors.' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Max results per type (default 10, max 50)' })
+  @ApiQuery({ name: 'type', required: false, enum: ['all', 'articles', 'authors', 'companies'], description: 'Filter results to a specific type (default: all)' })
+  @ApiOkResponse({ description: 'Returns matching articles, companies, and/or authors depending on type param.' })
   search(@Query() query: SearchQueryDto) {
-    return this.searchService.search(query.q, query.limit);
+    return this.searchService.search(query.q, query.limit, query.type);
   }
 }

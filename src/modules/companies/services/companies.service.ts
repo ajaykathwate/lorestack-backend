@@ -89,6 +89,15 @@ export class CompaniesService {
     return new CompanyEntity(company);
   }
 
+  async findAllPublic(page: number, limit: number): Promise<PaginatedResponse<CompanyEntity>> {
+    const skip = (page - 1) * limit;
+    const [companies, total] = await Promise.all([
+      this.repo.findAllPublic(skip, limit),
+      this.repo.countAllPublic(),
+    ]);
+    return new PaginatedResponse(companies.map((c) => new CompanyEntity(c)), total, page, limit);
+  }
+
   async findFeatured(limit: number): Promise<CompanyEntity[]> {
     const companies = await this.repo.findFeatured(limit);
     return companies.map((c) => new CompanyEntity(c));
