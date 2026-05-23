@@ -16,36 +16,36 @@ export class FollowsService {
       throw new ConflictException('You cannot follow yourself.');
     }
 
-    const existing = await this.prisma.follow.findUnique({
-      where: { uq_follows_follower_author: { followerId, authorProfileId } },
+    const existing = await this.prisma.authorFollow.findUnique({
+      where: { uq_author_follows_follower_author: { followerId, authorProfileId } },
     });
     if (existing) throw new ConflictException('Already following this author.');
 
-    await this.prisma.follow.create({ data: { followerId, authorProfileId } });
-    const count = await this.prisma.follow.count({ where: { authorProfileId } });
+    await this.prisma.authorFollow.create({ data: { followerId, authorProfileId } });
+    const count = await this.prisma.authorFollow.count({ where: { authorProfileId } });
     return { followersCount: count };
   }
 
   async unfollowAuthor(followerId: string, authorProfileId: string) {
-    const existing = await this.prisma.follow.findUnique({
-      where: { uq_follows_follower_author: { followerId, authorProfileId } },
+    const existing = await this.prisma.authorFollow.findUnique({
+      where: { uq_author_follows_follower_author: { followerId, authorProfileId } },
     });
     if (!existing) throw new NotFoundException('You are not following this author.');
 
-    await this.prisma.follow.delete({
-      where: { uq_follows_follower_author: { followerId, authorProfileId } },
+    await this.prisma.authorFollow.delete({
+      where: { uq_author_follows_follower_author: { followerId, authorProfileId } },
     });
-    const count = await this.prisma.follow.count({ where: { authorProfileId } });
+    const count = await this.prisma.authorFollow.count({ where: { authorProfileId } });
     return { followersCount: count };
   }
 
   async getAuthorFollowersCount(authorProfileId: string): Promise<number> {
-    return this.prisma.follow.count({ where: { authorProfileId } });
+    return this.prisma.authorFollow.count({ where: { authorProfileId } });
   }
 
   async isFollowingAuthor(followerId: string, authorProfileId: string): Promise<boolean> {
-    const record = await this.prisma.follow.findUnique({
-      where: { uq_follows_follower_author: { followerId, authorProfileId } },
+    const record = await this.prisma.authorFollow.findUnique({
+      where: { uq_author_follows_follower_author: { followerId, authorProfileId } },
     });
     return record !== null;
   }
@@ -88,5 +88,38 @@ export class FollowsService {
       where: { uq_company_follows_follower_company: { followerId, companyId } },
     });
     return record !== null;
+  }
+
+  // ── Tag follows ───────────────────────────────────────────────────────────────
+
+  async followTag(followerId: string, tagId: string) {
+    const tag = await this.prisma.tag.findUnique({ where: { id: tagId } });
+    if (!tag) throw new NotFoundException('Tag not found.');
+
+    const existing = await this.prisma.tagFollow.findUnique({
+      where: { uq_tag_follows_follower_tag: { followerId, tagId } },
+    });
+    if (existing) throw new ConflictException('Already following this tag.');
+
+    await this.prisma.tagFollow.create({ data: { followerId, tagId } });
+    const count = await this.prisma.tagFollow.count({ where: { tagId } });
+    return { followersCount: count };
+  }
+
+  async unfollowTag(followerId: string, tagId: string) {
+    const existing = await this.prisma.tagFollow.findUnique({
+      where: { uq_tag_follows_follower_tag: { followerId, tagId } },
+    });
+    if (!existing) throw new NotFoundException('You are not following this tag.');
+
+    await this.prisma.tagFollow.delete({
+      where: { uq_tag_follows_follower_tag: { followerId, tagId } },
+    });
+    const count = await this.prisma.tagFollow.count({ where: { tagId } });
+    return { followersCount: count };
+  }
+
+  async getTagFollowersCount(tagId: string): Promise<number> {
+    return this.prisma.tagFollow.count({ where: { tagId } });
   }
 }

@@ -5,13 +5,20 @@ import { createHash } from 'crypto';
 import { PrismaService } from '@database/prisma/prisma.service';
 import { BlogStatus } from '@prisma/client';
 
+export interface RecordViewOptions {
+  sessionId?: string;
+  source?: string;
+  referrer?: string;
+  device?: string;
+}
+
 @Injectable()
 export class AnalyticsService {
   constructor(private readonly prisma: PrismaService) {}
 
   // ── Blog views ────────────────────────────────────────────────────────────────
 
-  async recordBlogView(slug: string, req: Request) {
+  async recordBlogView(slug: string, req: Request, opts: RecordViewOptions = {}) {
     const blog = await this.prisma.blog.findUnique({ where: { slug } });
     if (!blog || blog.status !== BlogStatus.published) {
       throw new NotFoundException('Blog not found or not published.');
@@ -24,6 +31,10 @@ export class AnalyticsService {
       data: {
         blogId: blog.id,
         ipHash,
+        sessionId: opts.sessionId,
+        source: opts.source,
+        referrer: opts.referrer,
+        device: opts.device,
       },
     });
 

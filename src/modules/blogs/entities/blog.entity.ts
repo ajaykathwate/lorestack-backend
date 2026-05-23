@@ -88,6 +88,9 @@ export class BlogEntity {
   @ApiPropertyOptional({ nullable: true })
   seoDescOverride?: string | null;
 
+  @ApiPropertyOptional({ nullable: true })
+  readingTimeMinutes?: number | null;
+
   @ApiProperty()
   createdAt: Date;
 

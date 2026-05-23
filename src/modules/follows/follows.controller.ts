@@ -12,6 +12,8 @@ import { FollowsService } from './follows.service';
 export class FollowsController {
   constructor(private readonly followsService: FollowsService) {}
 
+  // ── Author follows ────────────────────────────────────────────────────────────
+
   @Post('author-profiles/:id/follow')
   @ApiOkResponse({ description: 'Follow an author. Returns updated followersCount.' })
   followAuthor(@Param('id') id: string, @CurrentUser() user: JwtUser) {
@@ -19,10 +21,13 @@ export class FollowsController {
   }
 
   @Delete('author-profiles/:id/follow')
+  @HttpCode(HttpStatus.OK)
   @ApiOkResponse({ description: 'Unfollow an author. Returns updated followersCount.' })
   unfollowAuthor(@Param('id') id: string, @CurrentUser() user: JwtUser) {
     return this.followsService.unfollowAuthor(user.sub, id);
   }
+
+  // ── Company follows ───────────────────────────────────────────────────────────
 
   @Post('companies/:id/follow')
   @ApiOkResponse({ description: 'Follow a company. Returns updated followersCount.' })
@@ -35,5 +40,20 @@ export class FollowsController {
   @ApiOkResponse({ description: 'Unfollow a company. Returns updated followersCount.' })
   unfollowCompany(@Param('id') id: string, @CurrentUser() user: JwtUser) {
     return this.followsService.unfollowCompany(user.sub, id);
+  }
+
+  // ── Tag follows ───────────────────────────────────────────────────────────────
+
+  @Post('tags/:id/follow')
+  @ApiOkResponse({ description: 'Follow a tag. Returns updated followersCount.' })
+  followTag(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.followsService.followTag(user.sub, id);
+  }
+
+  @Delete('tags/:id/follow')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ description: 'Unfollow a tag. Returns updated followersCount.' })
+  unfollowTag(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.followsService.unfollowTag(user.sub, id);
   }
 }

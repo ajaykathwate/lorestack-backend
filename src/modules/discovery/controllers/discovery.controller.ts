@@ -8,12 +8,34 @@ import { toBlogSummaryEntity } from '@modules/blogs/mappers/blog.mappers';
 import { BlogsRepository } from '@modules/blogs/repositories/blogs.repository';
 
 import { ExploreQueryDto } from '../dto/explore-query.dto';
+import { DiscoveryService } from '../services/discovery.service';
 
 @ApiTags('discovery')
 @Public()
 @Controller({ version: '1' })
 export class DiscoveryController {
-  constructor(private readonly blogsRepo: BlogsRepository) {}
+  constructor(
+    private readonly blogsRepo: BlogsRepository,
+    private readonly discoveryService: DiscoveryService,
+  ) {}
+
+  @Get('home')
+  @ApiOkResponse({ description: 'Aggregated homepage payload: featured article, trending, deep dives, tags, and quick stats.' })
+  getHome() {
+    return this.discoveryService.getHome();
+  }
+
+  @Get('stats')
+  @ApiOkResponse({ description: 'Platform-level publishing and engagement statistics.' })
+  getStats() {
+    return this.discoveryService.getStats();
+  }
+
+  @Get('article-types')
+  @ApiOkResponse({ description: 'All available article types with human-readable labels and descriptions.' })
+  getArticleTypes() {
+    return this.discoveryService.getArticleTypes();
+  }
 
   @Get('explore')
   @ApiOkResponse({ description: 'Paginated published blogs with optional filters.' })
@@ -37,7 +59,7 @@ export class DiscoveryController {
 
   @Get('explore/trending')
   @ApiQuery({ name: 'limit', required: false, type: Number })
-  @ApiOkResponse({ type: BlogSummaryEntity, isArray: true, description: 'Trending blogs from the past 7 days.' })
+  @ApiOkResponse({ type: BlogSummaryEntity, isArray: true, description: 'Top trending blogs ranked by engagement score.' })
   async trending(@Query('limit') limit = 5): Promise<BlogSummaryEntity[]> {
     const blogs = await this.blogsRepo.findTrending(+limit);
     return blogs.map(toBlogSummaryEntity);

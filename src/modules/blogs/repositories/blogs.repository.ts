@@ -128,13 +128,27 @@ export class BlogsRepository {
 
   findTrending(limit: number): Promise<BlogWithTags[]> {
     return this.prisma.blog.findMany({
-      where: {
-        status: BlogStatus.published,
-        publishedAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
-      },
+      where: { status: BlogStatus.published },
       include: blogInclude,
-      orderBy: [{ views: { _count: 'desc' } }, { publishedAt: 'desc' }],
+      orderBy: [{ engagementCounters: { trendingScore: 'desc' } }, { publishedAt: 'desc' }],
       take: limit,
+    });
+  }
+
+  findDeepDives(limit: number): Promise<BlogWithTags[]> {
+    return this.prisma.blog.findMany({
+      where: { status: BlogStatus.published, articleType: ArticleType.architecture_deep_dive },
+      include: blogInclude,
+      orderBy: { publishedAt: 'desc' },
+      take: limit,
+    });
+  }
+
+  findLeadArticle(): Promise<BlogWithTags | null> {
+    return this.prisma.blog.findFirst({
+      where: { status: BlogStatus.published },
+      include: blogInclude,
+      orderBy: [{ engagementCounters: { trendingScore: 'desc' } }, { publishedAt: 'desc' }],
     });
   }
 

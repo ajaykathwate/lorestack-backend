@@ -1010,7 +1010,8 @@ Valid `articleType` values: `engineering_blog`, `architecture_deep_dive`, `case_
 ```
 
 Slug is auto-generated from the title (lowercase-hyphenated). Collisions append `-2`, `-3`.  
-New tag names are created as `isApproved: false`.
+New tag names are created as `isApproved: false`.  
+`readingTimeMinutes` is computed from word count (`words / 200`, min 1). Updated on every `PATCH` that changes `body`.
 
 **Error cases**
 
@@ -1762,11 +1763,25 @@ Authorization: Bearer {{access_token}}
 
 **`POST {{base_url}}/blogs/:slug/view`**
 
-Records a view for a published blog. No auth required — IP is hashed for deduplication. Call this when a reader opens a blog post.
+Records a view for a published blog. No auth required — IP is hashed for deduplication. Call this when a reader opens a blog post. Optionally pass session context.
 
 ```
 POST {{base_url}}/blogs/how-we-scaled-to-100k-users/view
 ```
+
+**Body (all fields optional)**
+
+```json
+{
+  "sessionId": "sess_abc123",
+  "source": "explore",
+  "referrer": "https://twitter.com",
+  "device": "mobile"
+}
+```
+
+Valid `source` values: `explore`, `search`, `direct`, `tag`, `profile`
+Valid `device` values: `mobile`, `desktop`, `tablet`
 
 **Expected: 200** — `{ "recorded": true }`
 
@@ -1925,6 +1940,369 @@ Authorization: Bearer {{access_token}}
 ```
 
 **Expected: 200** — `{ "data": { "message": "All notifications marked as read." } }`
+
+---
+
+## Tag Follow Endpoints
+
+All tag follow endpoints require JWT.
+
+### 59. Follow a Tag
+
+**`POST {{base_url}}/tags/:id/follow`**
+
+`id` is the Tag UUID (get from `GET /tags` or `GET /tags/:slug`).
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200** — `{ "followersCount": 1 }`
+
+**Error cases**
+
+| Scenario          | Expected           |
+| ----------------- | ------------------ |
+| Already following | `409 Conflict`     |
+| Tag not found     | `404 Not Found`    |
+
+---
+
+### 60. Unfollow a Tag
+
+**`DELETE {{base_url}}/tags/:id/follow`**
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200** — `{ "followersCount": 0 }`
+
+**Error cases**
+
+| Scenario      | Expected        |
+| ------------- | --------------- |
+| Not following | `404 Not Found` |
+
+---
+
+## Engagement Endpoints
+
+Likes and saves require JWT. Shares and read sessions are public (auth optional — pass token to attribute to user).
+
+### 61. Like a Blog
+
+**`POST {{base_url}}/blogs/:slug/like`**
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200** — `{ "likesCount": 1 }`
+
+**Error cases**
+
+| Scenario           | Expected           |
+| ------------------ | ------------------ |
+| Already liked      | `409 Conflict`     |
+| Blog not published | `404 Not Found`    |
+
+---
+
+### 62. Unlike a Blog
+
+**`DELETE {{base_url}}/blogs/:slug/like`**
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200** — `{ "likesCount": 0 }`
+
+**Error cases**
+
+| Scenario    | Expected        |
+| ----------- | --------------- |
+| Not liked   | `404 Not Found` |
+
+---
+
+### 63. Save (Bookmark) a Blog
+
+**`POST {{base_url}}/blogs/:slug/save`**
+
+Bookmarks a blog for later reading.
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200** — `{ "savesCount": 1 }`
+
+**Error cases**
+
+| Scenario      | Expected           |
+| ------------- | ------------------ |
+| Already saved | `409 Conflict`     |
+
+---
+
+### 64. Unsave a Blog
+
+**`DELETE {{base_url}}/blogs/:slug/save`**
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200** — `{ "savesCount": 0 }`
+
+---
+
+### 65. Record a Share
+
+**`POST {{base_url}}/blogs/:slug/share`**
+
+No auth required. Pass a token to attribute the share to a user. The `channel` field identifies the share destination.
+
+**Body (all optional)**
+
+```json
+{
+  "channel": "twitter"
+}
+```
+
+Valid `channel` values: `twitter`, `linkedin`, `reddit`, `copy_link`, `other`
+
+**Expected: 200** — `{ "sharesCount": 1 }`
+
+---
+
+### 66. Update Read Session
+
+**`POST {{base_url}}/blogs/:slug/read-session`**
+
+Tracks reading progress. Call periodically while reading (e.g., every 30s on scroll events and on page unload). Uses `sessionId` as an upsert key — each unique session updates the same row.
+
+No auth required — pass token to attribute session to a user.
+
+**Body**
+
+```json
+{
+  "sessionId": "sess_abc123",
+  "maxScrollDepth": 65,
+  "readDurationSeconds": 180
+}
+```
+
+| Field                | Required | Notes                                                              |
+| -------------------- | -------- | ------------------------------------------------------------------ |
+| `sessionId`          | Yes      | Client-generated string, max 64 chars. Use `nanoid()` or similar. |
+| `maxScrollDepth`     | Yes      | 0–100. How far down the page the user has scrolled.               |
+| `readDurationSeconds`| Yes      | Total active seconds spent on the page.                            |
+| `completed`          | No       | Defaults to `true` when `maxScrollDepth >= 80`.                   |
+
+**Expected: 200** — `{ "recorded": true }`
+
+**Error cases**
+
+| Scenario          | Expected        |
+| ----------------- | --------------- |
+| Blog not published | `404 Not Found` |
+
+---
+
+### 67. Get Blog Engagement Counters (Public)
+
+**`GET {{base_url}}/blogs/:slug/engagement`**
+
+Returns pre-aggregated engagement counters for a blog. Updated every 10 minutes by the background aggregation job.
+
+```
+GET {{base_url}}/blogs/how-we-scaled-to-100k-users/engagement
+```
+
+**Expected: 200**
+
+```json
+{
+  "data": {
+    "totalViews": 1240,
+    "uniqueViews": 892,
+    "likesCount": 47,
+    "savesCount": 31,
+    "sharesCount": 12,
+    "avgCompletionRate": 0.71,
+    "trendingScore": 84.3
+  }
+}
+```
+
+Counters are `0` for a blog with no activity yet (counters row not yet created by cron).
+
+---
+
+### 68. Get My Engagement Status
+
+**`GET {{base_url}}/blogs/:slug/my-engagement`**
+
+Returns whether the authenticated user has liked or saved a specific blog.
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200**
+
+```json
+{
+  "data": {
+    "isLiked": true,
+    "isSaved": false
+  }
+}
+```
+
+---
+
+### 69. Get Homepage Payload
+
+**`GET {{base_url}}/home`**
+
+Public. Returns an aggregated homepage payload.
+
+**Headers**
+
+None required.
+
+**Expected: 200**
+
+```json
+{
+  "data": {
+    "featuredArticle": {
+      "id": "...",
+      "title": "The highest-trending published article",
+      "slug": "...",
+      "summary": "...",
+      "articleType": "architecture_deep_dive",
+      "authorProfile": { "displayName": "Ajay K", "username": "ajay-k", "avatarUrl": null },
+      "company": null,
+      "tags": [],
+      "readingTimeMinutes": 8,
+      "publishedAt": "2026-05-20T10:00:00.000Z"
+    },
+    "trendingArticles": [
+      { "id": "...", "title": "...", "slug": "...", "authorProfile": { ... }, "tags": [...] }
+    ],
+    "recentDeepDives": [
+      { "id": "...", "title": "...", "articleType": "architecture_deep_dive", ... }
+    ],
+    "trendingTags": [
+      { "id": "...", "name": "System Design", "slug": "system-design", "blogCount": 14 }
+    ],
+    "stats": {
+      "totalPublishedArticles": 42,
+      "articlesPublishedThisWeek": 5,
+      "companiesActivelyPublishing": 3
+    }
+  }
+}
+```
+
+**Notes:**
+- `featuredArticle` is the blog with the highest `trendingScore` in `blog_engagement_counters`. Returns `null` if no published articles exist.
+- `trendingArticles` are the next top 5 by `trendingScore`, excluding the featured article.
+- `recentDeepDives` are the 5 most recently published `architecture_deep_dive` articles.
+- `trendingTags` are the top 10 approved tags by `blogCount`.
+- `stats` is a quick snapshot — use `GET /stats` for the full breakdown.
+
+---
+
+### 70. Get Platform Stats
+
+**`GET {{base_url}}/stats`**
+
+Public. Returns platform-level publishing and engagement statistics.
+
+**Headers**
+
+None required.
+
+**Expected: 200**
+
+```json
+{
+  "data": {
+    "totalPublishedArticles": 42,
+    "articlesPublishedThisWeek": 5,
+    "newDeepDivesThisWeek": 2,
+    "avgReadCompletion": 0.61,
+    "companiesActivelyPublishing": 3,
+    "totalAuthors": 18
+  }
+}
+```
+
+**Field descriptions:**
+
+| Field | Description |
+|---|---|
+| `totalPublishedArticles` | All-time count of published blogs |
+| `articlesPublishedThisWeek` | Published in the last 7 days |
+| `newDeepDivesThisWeek` | `architecture_deep_dive` articles published in last 7 days |
+| `avgReadCompletion` | Average `avgCompletionRate` across all `blog_engagement_counters` rows (0.0–1.0) |
+| `companiesActivelyPublishing` | Companies with at least one article published in the last 7 days |
+| `totalAuthors` | Count of author profiles created |
+
+---
+
+### 71. Get Article Types
+
+**`GET {{base_url}}/article-types`**
+
+Public. Returns all supported article types with human-readable labels and descriptions. Useful for populating dropdowns in a blog editor.
+
+**Headers**
+
+None required.
+
+**Expected: 200**
+
+```json
+{
+  "data": [
+    { "type": "engineering_blog", "label": "Engineering Blog", "description": "General engineering articles covering tools, practices, and day-to-day technical work." },
+    { "type": "architecture_deep_dive", "label": "Architecture Deep Dive", "description": "In-depth exploration of system design decisions, trade-offs, and architectural patterns." },
+    { "type": "case_study", "label": "Case Study", "description": "Real-world problem → solution narratives with measurable outcomes." },
+    { "type": "scaling_story", "label": "Scaling Story", "description": "How a system or team was grown to handle increased load, users, or complexity." },
+    { "type": "failure_postmortem", "label": "Failure Postmortem", "description": "Honest retrospectives on incidents, outages, or failed experiments — and what was learned." },
+    { "type": "ai_experiment", "label": "AI Experiment", "description": "Hands-on exploration of AI/ML models, integrations, or applied research." },
+    { "type": "founder_note", "label": "Founder's Note", "description": "Perspective from company leadership on product direction, culture, or lessons learned." },
+    { "type": "tutorial", "label": "Tutorial", "description": "Step-by-step guide to accomplish a specific technical task." },
+    { "type": "opinion_essay", "label": "Opinion Essay", "description": "Argued perspective on a technical or industry topic — not neutral, not a how-to." },
+    { "type": "project_showcase", "label": "Project Showcase", "description": "Demonstration of a built product, open-source library, or internal tool." },
+    { "type": "open_source_release", "label": "Open Source Release", "description": "Announcement and walkthrough of a newly open-sourced project." },
+    { "type": "other", "label": "Other", "description": "Articles that do not fit a predefined type." }
+  ]
+}
+```
 
 ---
 

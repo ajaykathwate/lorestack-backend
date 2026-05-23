@@ -118,9 +118,14 @@ model User {
   blogs              Blog[]
   companiesCreated   Company[]                @relation("companyCreator")
   milestones         CompanyMilestone[]
-  follows            Follow[]
+  authorFollows      AuthorFollow[]
   companyFollows     CompanyFollow[]
+  tagFollows         TagFollow[]
   blogViews          BlogView[]
+  blogLikes          BlogLike[]
+  blogSaves          BlogSave[]
+  blogShares         BlogShare[]
+  readSessions       BlogReadSession[]
   notifications      Notification[]
 
   @@map("users")
@@ -140,8 +145,8 @@ model AuthorProfile {
   websiteUrl    String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  followers     Follow[]
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  followers     AuthorFollow[]
 
   @@map("author_profiles")
 }
@@ -303,15 +308,21 @@ model Blog {
   publishedAt       DateTime?
   scheduledAt       DateTime?
   scheduledTimezone String?     @db.VarChar(100)
-  seoTitleOverride  String?     @db.VarChar(60)
-  seoDescOverride   String?     @db.VarChar(160)
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  seoTitleOverride   String?     @db.VarChar(60)
+  seoDescOverride    String?     @db.VarChar(160)
+  readingTimeMinutes Int?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
 
-  author  User      @relation(fields: [authorId], references: [id])
-  company Company?  @relation(fields: [companyId], references: [id])
-  tags    BlogTag[]
-  views   BlogView[]
+  author             User                    @relation(fields: [authorId], references: [id])
+  company            Company?                @relation(fields: [companyId], references: [id])
+  tags               BlogTag[]
+  views              BlogView[]
+  likes              BlogLike[]
+  saves              BlogSave[]
+  shares             BlogShare[]
+  readSessions       BlogReadSession[]
+  engagementCounters BlogEngagementCounters?
 
   @@index([authorId], name: "idx_blogs_author")
   @@index([companyId], name: "idx_blogs_company")
@@ -338,10 +349,11 @@ model Tag {
   name        String    @unique @db.VarChar(50)
   slug        String    @unique @db.VarChar(60)
   description String?
-  blogCount   Int       @default(0)
-  isApproved  Boolean   @default(false)
-  createdAt   DateTime  @default(now())
+  blogCount   Int        @default(0)
+  isApproved  Boolean    @default(false)
+  createdAt   DateTime   @default(now())
   blogs       BlogTag[]
+  followers   TagFollow[]
 
   @@index([isApproved], name: "idx_tags_approved")
   @@map("tags")
@@ -400,7 +412,7 @@ model SlugRedirect {
 
 // ─── Social Graph ─────────────────────────────────────────────────────────────
 
-model Follow {
+model AuthorFollow {
   id              String        @id @default(uuid()) @db.Uuid
   followerId      String        @db.Uuid
   authorProfileId String        @db.Uuid
@@ -408,9 +420,9 @@ model Follow {
   follower        User          @relation(fields: [followerId], references: [id], onDelete: Cascade)
   authorProfile   AuthorProfile @relation(fields: [authorProfileId], references: [id], onDelete: Cascade)
 
-  @@unique([followerId, authorProfileId], name: "uq_follows_follower_author")
-  @@index([authorProfileId], name: "idx_follows_author")
-  @@map("follows")
+  @@unique([followerId, authorProfileId], name: "uq_author_follows_follower_author")
+  @@index([authorProfileId], name: "idx_author_follows_author")
+  @@map("author_follows")
 }
 
 model CompanyFollow {
@@ -426,20 +438,111 @@ model CompanyFollow {
   @@map("company_follows")
 }
 
-// ─── Analytics ────────────────────────────────────────────────────────────────
+model TagFollow {
+  id         String   @id @default(uuid()) @db.Uuid
+  followerId String   @db.Uuid
+  tagId      String   @db.Uuid
+  createdAt  DateTime @default(now())
+  follower   User     @relation(fields: [followerId], references: [id], onDelete: Cascade)
+  tag        Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, tagId], name: "uq_tag_follows_follower_tag")
+  @@index([tagId], name: "idx_tag_follows_tag")
+  @@map("tag_follows")
+}
+
+// ─── Analytics & Telemetry ────────────────────────────────────────────────────
 
 model BlogView {
-  id         String   @id @default(uuid()) @db.Uuid
-  blogId     String   @db.Uuid
-  viewerId   String?  @db.Uuid
-  ipHash     String?  @db.VarChar(64)
-  viewedAt   DateTime @default(now())
-  blog       Blog     @relation(fields: [blogId], references: [id], onDelete: Cascade)
-  viewer     User?    @relation(fields: [viewerId], references: [id], onDelete: SetNull)
+  id        String   @id @default(uuid()) @db.Uuid
+  blogId    String   @db.Uuid
+  viewerId  String?  @db.Uuid
+  ipHash    String?  @db.VarChar(64)
+  sessionId String?  @db.VarChar(64)
+  source    String?  @db.VarChar(50)
+  referrer  String?
+  device    String?  @db.VarChar(20)
+  viewedAt  DateTime @default(now())
+  blog      Blog     @relation(fields: [blogId], references: [id], onDelete: Cascade)
+  viewer    User?    @relation(fields: [viewerId], references: [id], onDelete: SetNull)
 
   @@index([blogId], name: "idx_blog_views_blog")
   @@index([blogId, viewedAt], name: "idx_blog_views_blog_date")
   @@map("blog_views")
+}
+
+model BlogLike {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  blogId    String   @db.Uuid
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  blog      Blog     @relation(fields: [blogId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, blogId], name: "uq_blog_likes_user_blog")
+  @@index([blogId], name: "idx_blog_likes_blog")
+  @@map("blog_likes")
+}
+
+model BlogSave {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  blogId    String   @db.Uuid
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  blog      Blog     @relation(fields: [blogId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, blogId], name: "uq_blog_saves_user_blog")
+  @@index([blogId], name: "idx_blog_saves_blog")
+  @@map("blog_saves")
+}
+
+model BlogShare {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @db.Uuid
+  blogId    String   @db.Uuid
+  channel   String?  @db.VarChar(50)
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  blog      Blog     @relation(fields: [blogId], references: [id], onDelete: Cascade)
+
+  @@index([blogId], name: "idx_blog_shares_blog")
+  @@map("blog_shares")
+}
+
+model BlogReadSession {
+  id                  String   @id @default(uuid()) @db.Uuid
+  blogId              String   @db.Uuid
+  userId              String?  @db.Uuid
+  sessionId           String   @db.VarChar(64)
+  maxScrollDepth      Int      @default(0)
+  readDurationSeconds Int      @default(0)
+  completed           Boolean  @default(false)
+  startedAt           DateTime @default(now())
+  lastEventAt         DateTime @default(now())
+  blog                Blog     @relation(fields: [blogId], references: [id], onDelete: Cascade)
+  user                User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([blogId, sessionId], name: "uq_read_session_blog_session")
+  @@index([blogId], name: "idx_read_sessions_blog")
+  @@index([userId], name: "idx_read_sessions_user")
+  @@map("blog_read_sessions")
+}
+
+// Materialized counter cache — never written by user-facing endpoints, only by cron aggregation.
+model BlogEngagementCounters {
+  blogId            String   @id @db.Uuid
+  totalViews        Int      @default(0)
+  uniqueViews       Int      @default(0)
+  likes             Int      @default(0)
+  saves             Int      @default(0)
+  shares            Int      @default(0)
+  avgCompletionRate Float    @default(0)
+  trendingScore     Float    @default(0)
+  updatedAt         DateTime @default(now()) @updatedAt
+  blog              Blog     @relation(fields: [blogId], references: [id], onDelete: Cascade)
+
+  @@map("blog_engagement_counters")
 }
 
 // ─── Notifications ────────────────────────────────────────────────────────────

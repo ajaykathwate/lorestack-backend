@@ -25,6 +25,7 @@ import { SearchModule } from './modules/search/search.module';
 import { FollowsModule } from './modules/follows/follows.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { EngagementModule } from './modules/engagement/engagement.module';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     FollowsModule,
     AnalyticsModule,
     NotificationsModule,
+    EngagementModule,
   ],
   providers: [
     {

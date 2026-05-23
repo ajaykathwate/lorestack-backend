@@ -48,16 +48,18 @@ export class BlogsService {
     const ogImageUrl = this.buildDefaultOgUrl(dto.title);
 
     try {
+      const body = dto.body ?? '';
       const blog = await this.repo.create({
         title: dto.title,
         slug,
-        body: dto.body ?? '',
+        body,
         articleType: dto.articleType,
         ogImageUrl: dto.coverImageUrl ?? ogImageUrl,
         summary: dto.summary,
         coverImageUrl: dto.coverImageUrl,
         seoTitleOverride: dto.seoTitleOverride,
         seoDescOverride: dto.seoDescOverride,
+        readingTimeMinutes: this.computeReadingTime(body),
         status: BlogStatus.draft,
         author: { connect: { id: requester.sub } },
         ...(dto.companyId ? { company: { connect: { id: dto.companyId } } } : {}),
@@ -126,7 +128,7 @@ export class BlogsService {
     try {
       const updated = await this.repo.update(blog.id, {
         ...(dto.title ? { title: dto.title } : {}),
-        ...(dto.body !== undefined ? { body: dto.body } : {}),
+        ...(dto.body !== undefined ? { body: dto.body, readingTimeMinutes: this.computeReadingTime(dto.body) } : {}),
         ...(dto.articleType ? { articleType: dto.articleType } : {}),
         ...(dto.summary !== undefined ? { summary: dto.summary } : {}),
         ...(dto.coverImageUrl !== undefined ? { coverImageUrl: dto.coverImageUrl } : {}),
@@ -287,5 +289,10 @@ export class BlogsService {
   private buildDefaultOgUrl(title: string): string {
     const encoded = encodeURIComponent(title.substring(0, 60));
     return `https://og.lorestack.io/blog?title=${encoded}`;
+  }
+
+  private computeReadingTime(body: string): number {
+    const wordCount = body.trim().split(/\s+/).filter(Boolean).length;
+    return Math.max(1, Math.ceil(wordCount / 200));
   }
 }

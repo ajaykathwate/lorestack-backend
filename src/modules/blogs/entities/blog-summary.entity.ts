@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ArticleType, BlogStatus } from '@prisma/client';
 
 import { TagEntity } from '@modules/tags/entities/tag.entity';
+import { EmbeddedAuthorProfile, EmbeddedCompany } from './blog.entity';
 
 export class BlogSummaryEntity {
   @ApiProperty({ format: 'uuid' })
@@ -43,6 +44,9 @@ export class BlogSummaryEntity {
   @ApiPropertyOptional({ nullable: true })
   scheduledTimezone?: string | null;
 
+  @ApiPropertyOptional({ nullable: true })
+  readingTimeMinutes?: number | null;
+
   @ApiProperty()
   createdAt: Date;
 
@@ -51,6 +55,12 @@ export class BlogSummaryEntity {
 
   @ApiPropertyOptional({ type: () => TagEntity, isArray: true })
   tags?: TagEntity[];
+
+  @ApiPropertyOptional({ type: () => EmbeddedAuthorProfile, nullable: true })
+  authorProfile?: EmbeddedAuthorProfile | null;
+
+  @ApiPropertyOptional({ type: () => EmbeddedCompany, nullable: true })
+  company?: EmbeddedCompany | null;
 
   constructor(partial: Partial<BlogSummaryEntity>) {
     Object.assign(this, partial);

@@ -138,6 +138,21 @@ TableGroup seo_and_routing {
   slug_redirects
 }
 
+TableGroup social_graph {
+  author_follows
+  company_follows
+  tag_follows
+}
+
+TableGroup engagement_telemetry {
+  blog_views
+  blog_likes
+  blog_saves
+  blog_shares
+  blog_read_sessions
+  blog_engagement_counters
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // IDENTITY & AUTH
 // ─────────────────────────────────────────────────────────────────────
@@ -297,10 +312,11 @@ Table blogs {
   published_at        timestamptz   [null, note: "Set on first publish. Shown as public publish date."]
   scheduled_at        timestamptz   [null, note: "Only populated when status = scheduled"]
   scheduled_timezone  varchar(100)  [null, note: "IANA tz string e.g. 'Asia/Kolkata'. Required if scheduled_at is set."]
-  seo_title_override  varchar(60)   [null, note: "Custom meta title. Falls back to title if null."]
-  seo_desc_override   varchar(160)  [null, note: "Custom meta description. Falls back to summary/body slice."]
-  created_at          timestamptz   [not null, default: "now()"]
-  updated_at          timestamptz   [not null, default: "now()"]
+  seo_title_override   varchar(60)   [null, note: "Custom meta title. Falls back to title if null."]
+  seo_desc_override    varchar(160)  [null, note: "Custom meta description. Falls back to summary/body slice."]
+  reading_time_minutes integer       [null, note: "Computed at create/update from word count / 200 wpm. Min 1."]
+  created_at           timestamptz   [not null, default: "now()"]
+  updated_at           timestamptz   [not null, default: "now()"]
 
   indexes {
     slug                          [unique, name: "uq_blogs_slug"]
@@ -478,5 +494,189 @@ Table slug_redirects {
     Chain redirects: if slug changes twice (A→B, then B→C), two rows exist.
     Middleware should follow chains up to depth 3.
     Rows are append-only — never deleted. No cascade needed.
+  '''
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// SOCIAL GRAPH
+// ─────────────────────────────────────────────────────────────────────
+
+// User follows an author profile. Renamed from `follows` for clarity.
+// Each follow type has its own table for FK integrity and Prisma includes.
+Table author_follows {
+  id                uuid        [pk, default: "gen_random_uuid()"]
+  follower_id       uuid        [not null, ref: > users.id]
+  author_profile_id uuid        [not null, ref: > author_profiles.id]
+  created_at        timestamptz [not null, default: "now()"]
+
+  indexes {
+    (follower_id, author_profile_id) [unique, name: "uq_author_follows_follower_author"]
+    author_profile_id                [name: "idx_author_follows_author"]
+  }
+}
+
+// User follows a company.
+Table company_follows {
+  id          uuid        [pk, default: "gen_random_uuid()"]
+  follower_id uuid        [not null, ref: > users.id]
+  company_id  uuid        [not null, ref: > companies.id]
+  created_at  timestamptz [not null, default: "now()"]
+
+  indexes {
+    (follower_id, company_id) [unique, name: "uq_company_follows_follower_company"]
+    company_id                [name: "idx_company_follows_company"]
+  }
+}
+
+// User follows a tag (interest subscription).
+Table tag_follows {
+  id          uuid        [pk, default: "gen_random_uuid()"]
+  follower_id uuid        [not null, ref: > users.id]
+  tag_id      uuid        [not null, ref: > tags.id]
+  created_at  timestamptz [not null, default: "now()"]
+
+  indexes {
+    (follower_id, tag_id) [unique, name: "uq_tag_follows_follower_tag"]
+    tag_id                [name: "idx_tag_follows_tag"]
+  }
+
+  Note: '''
+    Powers personalised feed: user sees blogs tagged with their followed tags.
+    Also used for trending tag computation: velocity = new follows / time window.
+  '''
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// ENGAGEMENT TELEMETRY
+// ─────────────────────────────────────────────────────────────────────
+
+// Raw view events. Extends basic tracking with session context.
+// sessionId links to blog_read_sessions for correlation.
+Table blog_views {
+  id          uuid        [pk, default: "gen_random_uuid()"]
+  blog_id     uuid        [not null, ref: > blogs.id]
+  viewer_id   uuid        [null, ref: > users.id, note: "NULL for anonymous viewers"]
+  ip_hash     varchar(64) [null, note: "SHA-256 hash of client IP. Never raw IP."]
+  session_id  varchar(64) [null, note: "Client-generated session ID. Links to blog_read_sessions."]
+  source      varchar(50) [null, note: "Traffic source: 'explore', 'search', 'direct', 'tag', 'profile'"]
+  referrer    text        [null, note: "HTTP Referer header value"]
+  device      varchar(20) [null, note: "'mobile', 'desktop', 'tablet'"]
+  viewed_at   timestamptz [not null, default: "now()"]
+
+  indexes {
+    blog_id             [name: "idx_blog_views_blog"]
+    (blog_id, viewed_at) [name: "idx_blog_views_blog_date"]
+  }
+
+  Note: '''
+    Weak signal on its own. Used for total_views counter only.
+    Strong signals come from blog_read_sessions (completion) and blog_saves.
+    ip_hash used for unique view deduplication in aggregation job.
+  '''
+}
+
+// User likes a blog. Strong-ish signal — less than save but more than view.
+Table blog_likes {
+  id         uuid        [pk, default: "gen_random_uuid()"]
+  user_id    uuid        [not null, ref: > users.id]
+  blog_id    uuid        [not null, ref: > blogs.id]
+  created_at timestamptz [not null, default: "now()"]
+
+  indexes {
+    (user_id, blog_id) [unique, name: "uq_blog_likes_user_blog"]
+    blog_id            [name: "idx_blog_likes_blog"]
+  }
+}
+
+// User bookmarks/saves a blog. Very strong signal — indicates real value.
+// Used with high weight in trending score formula.
+Table blog_saves {
+  id         uuid        [pk, default: "gen_random_uuid()"]
+  user_id    uuid        [not null, ref: > users.id]
+  blog_id    uuid        [not null, ref: > blogs.id]
+  created_at timestamptz [not null, default: "now()"]
+
+  indexes {
+    (user_id, blog_id) [unique, name: "uq_blog_saves_user_blog"]
+    blog_id            [name: "idx_blog_saves_blog"]
+  }
+}
+
+// Records a share event. user_id is nullable (anonymous shares allowed).
+// channel = 'twitter', 'linkedin', 'copy_link', 'reddit', etc.
+// Strong signal — used with highest weight in trending score.
+Table blog_shares {
+  id         uuid        [pk, default: "gen_random_uuid()"]
+  user_id    uuid        [null, ref: > users.id, note: "NULL for anonymous shares"]
+  blog_id    uuid        [not null, ref: > blogs.id]
+  channel    varchar(50) [null, note: "'twitter', 'linkedin', 'copy_link', 'reddit', 'other'"]
+  created_at timestamptz [not null, default: "now()"]
+
+  indexes {
+    blog_id [name: "idx_blog_shares_blog"]
+  }
+}
+
+// Tracks how far a user read an article and for how long.
+// STRONGEST signal for content quality — completion rate determines deep dive classification.
+// Upserted by client on scroll/unload events using sessionId as key.
+Table blog_read_sessions {
+  id                    uuid        [pk, default: "gen_random_uuid()"]
+  blog_id               uuid        [not null, ref: > blogs.id]
+  user_id               uuid        [null, ref: > users.id, note: "NULL for anonymous readers"]
+  session_id            varchar(64) [not null, note: "Client-generated. Used as upsert key with blog_id."]
+  max_scroll_depth      integer     [not null, default: 0, note: "0-100 percentage. How far user scrolled."]
+  read_duration_seconds integer     [not null, default: 0, note: "Total active reading time in seconds."]
+  completed             boolean     [not null, default: false, note: "True when max_scroll_depth >= 80. Set by service."]
+  started_at            timestamptz [not null, default: "now()"]
+  last_event_at         timestamptz [not null, default: "now()", note: "Updated on every progress event from client."]
+
+  indexes {
+    (blog_id, session_id) [unique, name: "uq_read_session_blog_session"]
+    blog_id               [name: "idx_read_sessions_blog"]
+    user_id               [name: "idx_read_sessions_user"]
+  }
+
+  Note: '''
+    Client calls POST /blogs/:slug/read-session every ~30s with latest progress.
+    completed = true when max_scroll_depth >= 80 (service-computed).
+    avg_completion_rate per blog = AVG(CASE WHEN completed THEN 1.0 ELSE max_scroll_depth/100 END)
+    Powers:
+      - Trending score (completion contributes 3x weight)
+      - Deep dive detection (future: high avg completion + long duration → deep dive)
+      - Author quality score (future: avg completion across author's blogs)
+  '''
+}
+
+// Materialized engagement counter cache for fast homepage/feed queries.
+// NEVER written by user-facing endpoints. Only updated by the aggregation cron (every 10 min).
+// trending_score uses time-decayed formula — see EngagementAggregationService.
+Table blog_engagement_counters {
+  blog_id            uuid    [pk, ref: - blogs.id, note: "1:1 with blogs. PK is the FK."]
+  total_views        integer [not null, default: 0]
+  unique_views       integer [not null, default: 0, note: "Distinct ip_hash count from blog_views"]
+  likes              integer [not null, default: 0]
+  saves              integer [not null, default: 0]
+  shares             integer [not null, default: 0]
+  avg_completion_rate float  [not null, default: 0, note: "0.0 to 1.0. Sourced from blog_read_sessions."]
+  trending_score     float   [not null, default: 0, note: "Time-decayed weighted score. See formula below."]
+  updated_at         timestamptz [not null]
+
+  Note: '''
+    trending_score formula (Phase 2):
+      score = (4 * unique_views + 8 * saves + 10 * shares + 3 * avg_completion_rate * 100)
+              / (hours_since_published + 2)^1.5
+
+    Signal weights (strongest → weakest):
+      shares (10) > saves (8) > unique_views (4) > completion_rate (3) > raw_views (not used)
+
+    Time decay prevents old articles from dominating. Recent articles naturally score higher
+    until engagement velocity slows.
+
+    Phase 3 upgrades:
+      - Add comments weight when comment system ships
+      - Add returning_readers signal (viewer_id repeat visits)
+      - Editorial boost multiplier (admin can pin articles)
+      - deep_dive_score column when classification ships
   '''
 }
