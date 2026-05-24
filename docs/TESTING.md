@@ -659,6 +659,51 @@ Authorization: Bearer {{access_token}}
 
 ---
 
+### 20a. List All Public Companies (Public, Paginated)
+
+**`GET {{base_url}}/companies?page=1&limit=20`**
+
+No auth required. Returns all companies with `isPublic: true`, newest first. Used for the companies directory page.
+
+**Query params (all optional)**
+
+| Param   | Default | Max  |
+| ------- | ------- | ---- |
+| `page`  | `1`     | —    |
+| `limit` | `20`    | `50` |
+
+**Example**
+
+```
+GET {{base_url}}/companies
+GET {{base_url}}/companies?page=2&limit=10
+```
+
+**Expected: 200**
+
+```json
+{
+  "data": {
+    "data": [
+      {
+        "id": "uuid",
+        "name": "Acme Corp",
+        "handle": "acme-corp",
+        "tagline": "Building the future of developer tooling",
+        "logoUrl": "https://cdn.example.com/logo.png",
+        "industry": "dev_tools",
+        "stage": "early_stage",
+        "isPublic": true,
+        "createdAt": "2026-05-20T..."
+      }
+    ],
+    "meta": { "page": 1, "limit": 20, "total": 7, "hasNextPage": false }
+  }
+}
+```
+
+---
+
 ### 21. Get My Companies
 
 **`GET {{base_url}}/companies/mine`**
@@ -1101,6 +1146,58 @@ Authorization: Bearer {{access_token}}
   }
 }
 ```
+
+---
+
+### 32b. Get Own Blog by Slug — Any Status (Owner only)
+
+**`GET {{base_url}}/blogs/me/:slug`**
+
+Returns the full blog regardless of status (`draft`, `scheduled`, `published`, `archived`). Only the blog's author can access this. Used by the draft editor to load existing content.
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Example**
+
+```
+GET {{base_url}}/blogs/me/how-we-scaled-to-100k-users
+```
+
+**Expected: 200** — full `BlogEntity` including `body`, `seoTitleOverride`, `seoDescOverride` (same shape as section 33).
+
+```json
+{
+  "data": {
+    "id": "uuid",
+    "authorId": "uuid",
+    "title": "How We Scaled to 100k Users",
+    "slug": "how-we-scaled-to-100k-users",
+    "body": "# Introduction\n\nFull content here...",
+    "status": "draft",
+    "seoTitleOverride": null,
+    "seoDescOverride": null,
+    "tags": [...],
+    "publishedAt": null,
+    "scheduledAt": null,
+    "createdAt": "2026-05-20T...",
+    "updatedAt": "2026-05-20T..."
+  }
+}
+```
+
+**Difference from `GET /blogs/:slug` (section 33):** That endpoint is public but only returns `published` blogs. This endpoint requires auth, returns **any status**, and only works if the blog belongs to the authenticated user.
+
+**Error cases**
+
+| Scenario                          | Expected           |
+| --------------------------------- | ------------------ |
+| Slug not found                    | `404 Not Found`    |
+| Blog belongs to a different user  | `404 Not Found`    |
+| No auth header                    | `401 Unauthorized` |
 
 ---
 
@@ -1644,37 +1741,78 @@ Authorization: Bearer {{access_token}}
 
 **`GET {{base_url}}/search?q=typescript&limit=10`**
 
-Full-text search across blogs, companies, and authors. Returns up to `limit` results per type.
+Full-text search across blogs, companies, and authors. Returns up to `limit` results per type. Use the `type` param to search a single category only (faster, fewer results to parse).
 
 ```
 GET {{base_url}}/search?q=typescript
 GET {{base_url}}/search?q=nestjs&limit=5
+GET {{base_url}}/search?q=ajay&type=authors
+GET {{base_url}}/search?q=acme&type=companies
+GET {{base_url}}/search?q=scaling&type=articles
 ```
 
 **Query params**
 
-| Param   | Required | Default | Notes              |
-| ------- | -------- | ------- | ------------------ |
-| `q`     | Yes      | —       | 1–100 chars        |
-| `limit` | No       | `10`    | Max per type, 1–20 |
+| Param   | Required | Default | Notes                                              |
+| ------- | -------- | ------- | -------------------------------------------------- |
+| `q`     | Yes      | —       | 1–100 chars                                        |
+| `limit` | No       | `10`    | Max per type, 1–50                                 |
+| `type`  | No       | `all`   | `all`, `articles`, `authors`, `companies` — when set, only that category runs; others return `[]` |
 
-**Expected: 200**
+**Expected: 200 (type=all)**
 
 ```json
 {
   "data": {
     "blogs": [
-      { "id": "uuid", "title": "TypeScript Tips", "slug": "typescript-tips", "summary": "...", "publishedAt": "..." }
+      {
+        "id": "uuid",
+        "title": "TypeScript Tips",
+        "slug": "typescript-tips",
+        "summary": "...",
+        "articleType": "tutorial",
+        "readingTimeMinutes": 5,
+        "publishedAt": "2026-05-20T...",
+        "authorProfile": { "displayName": "Ajay K", "username": "ajay-k", "avatarUrl": null },
+        "company": null,
+        "tags": [{ "id": "uuid", "name": "TypeScript", "slug": "typescript" }]
+      }
     ],
     "companies": [
-      { "id": "uuid", "name": "Acme Corp", "handle": "acme-corp", "tagline": "...", "logoUrl": null }
+      {
+        "id": "uuid",
+        "name": "Acme Corp",
+        "handle": "acme-corp",
+        "tagline": "...",
+        "logoUrl": null,
+        "industry": "dev_tools",
+        "stage": "early_stage"
+      }
     ],
     "authors": [
-      { "id": "uuid", "displayName": "Ajay K", "username": "ajay-k", "avatarUrl": null, "bio": "..." }
+      {
+        "id": "uuid",
+        "displayName": "Ajay K",
+        "username": "ajay-k",
+        "avatarUrl": null,
+        "bio": "...",
+        "expertiseTags": ["TypeScript", "NestJS"]
+      }
     ]
   }
 }
 ```
+
+**Expected: 200 (type=authors)** — `blogs` and `companies` are `[]`, only `authors` is populated.
+
+**Error cases**
+
+| Scenario              | Expected          |
+| --------------------- | ----------------- |
+| `q` missing           | `400 Bad Request` |
+| `q` > 100 chars       | `400 Bad Request` |
+| Invalid `type` value  | `400 Bad Request` |
+| `limit` > 50          | `400 Bad Request` |
 
 ---
 
@@ -2002,6 +2140,150 @@ Authorization: Bearer {{access_token}}
 
 ---
 
+## Follow List Endpoints
+
+All follow list endpoints require JWT.
+
+### 60a. Get My Followers (People Who Follow Me)
+
+**`GET {{base_url}}/me/followers/authors`**
+
+Returns the `AuthorProfile` objects of users who follow the authenticated user. Ordered newest-follower first.
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200**
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "userId": "uuid",
+      "displayName": "Jane Dev",
+      "username": "jane-dev",
+      "avatarUrl": "https://cdn.example.com/jane.png",
+      "bio": "...",
+      "expertiseTags": ["Go", "Kubernetes"],
+      "createdAt": "2026-05-20T..."
+    }
+  ]
+}
+```
+
+Returns `[]` if the authenticated user hasn't completed onboarding (no `AuthorProfile` exists yet) or has no followers.
+
+> Note: `GET /me/followers/companies` does **not** exist. The data model only supports users following companies, not companies following users.
+
+---
+
+### 60b. Get Authors I Follow
+
+**`GET {{base_url}}/me/following/authors`**
+
+Returns `AuthorProfile` objects for all authors the authenticated user follows. Ordered most-recently-followed first.
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200**
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "userId": "uuid",
+      "displayName": "Ajay K",
+      "username": "ajay-k",
+      "avatarUrl": null,
+      "bio": "...",
+      "expertiseTags": ["TypeScript"],
+      "createdAt": "2026-05-20T..."
+    }
+  ]
+}
+```
+
+Returns `[]` if not following any authors.
+
+---
+
+### 60c. Get Companies I Follow
+
+**`GET {{base_url}}/me/following/companies`**
+
+Returns company objects for all companies the authenticated user follows. Ordered most-recently-followed first.
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200**
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "name": "Acme Corp",
+      "handle": "acme-corp",
+      "tagline": "Building the future of developer tooling",
+      "logoUrl": null,
+      "industry": "dev_tools",
+      "stage": "early_stage",
+      "createdAt": "2026-05-20T..."
+    }
+  ]
+}
+```
+
+Returns `[]` if not following any companies.
+
+---
+
+### 60d. Get Tags I Follow
+
+**`GET {{base_url}}/me/following/tags`**
+
+Returns tag objects for all tags the authenticated user follows. Ordered most-recently-followed first.
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200**
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "name": "TypeScript",
+      "slug": "typescript",
+      "blogCount": 42,
+      "isApproved": true,
+      "createdAt": "2026-05-20T..."
+    }
+  ]
+}
+```
+
+Returns `[]` if not following any tags.
+
+---
+
 ## Engagement Endpoints
 
 Likes and saves require JWT. Shares and read sessions are public (auth optional — pass token to attribute to user).
@@ -2190,6 +2472,66 @@ Authorization: Bearer {{access_token}}
   }
 }
 ```
+
+---
+
+### 68a. Get My Saved Blogs (Paginated)
+
+**`GET {{base_url}}/me/saved?page=1&limit=20`**
+
+Returns blog summaries for all blogs the authenticated user has bookmarked, newest-saved first.
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Query params (all optional)**
+
+| Param   | Default | Max  |
+| ------- | ------- | ---- |
+| `page`  | `1`     | —    |
+| `limit` | `20`    | —    |
+
+**Example**
+
+```
+GET {{base_url}}/me/saved
+GET {{base_url}}/me/saved?page=2&limit=10
+```
+
+**Expected: 200**
+
+```json
+{
+  "data": {
+    "data": [
+      {
+        "id": "uuid",
+        "title": "How We Scaled to 100k Users",
+        "slug": "how-we-scaled-to-100k-users",
+        "summary": "...",
+        "articleType": "scaling_story",
+        "readingTimeMinutes": 8,
+        "status": "published",
+        "publishedAt": "2026-05-20T...",
+        "likesCount": 47,
+        "savesCount": 31,
+        "viewsCount": 1240,
+        "authorProfile": { "displayName": "Ajay K", "username": "ajay-k", "avatarUrl": null },
+        "company": null,
+        "tags": [{ "id": "uuid", "name": "TypeScript", "slug": "typescript" }]
+      }
+    ],
+    "total": 5,
+    "page": 1,
+    "limit": 20
+  }
+}
+```
+
+Returns `{ data: [], total: 0, page: 1, limit: 20 }` if the user has no saved blogs.
 
 ---
 

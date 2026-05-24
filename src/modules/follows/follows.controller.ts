@@ -12,6 +12,14 @@ import { FollowsService } from './follows.service';
 export class FollowsController {
   constructor(private readonly followsService: FollowsService) {}
 
+  // ── My followers ─────────────────────────────────────────────────────────────
+
+  @Get('me/followers/authors')
+  @ApiOkResponse({ description: 'Returns author profiles of users who follow the authenticated user.' })
+  getMyFollowers(@CurrentUser() user: JwtUser) {
+    return this.followsService.getMyFollowers(user.sub);
+  }
+
   // ── My following lists ────────────────────────────────────────────────────────
 
   @Get('me/following/authors')

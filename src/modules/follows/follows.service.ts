@@ -123,6 +123,21 @@ export class FollowsService {
     return this.prisma.tagFollow.count({ where: { tagId } });
   }
 
+  // ── My followers ─────────────────────────────────────────────────────────────
+
+  async getMyFollowers(userId: string) {
+    const profile = await this.prisma.authorProfile.findUnique({ where: { userId } });
+    if (!profile) return [];
+
+    const rows = await this.prisma.authorFollow.findMany({
+      where: { authorProfileId: profile.id },
+      include: { follower: { include: { authorProfile: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return rows.map((r) => r.follower.authorProfile).filter(Boolean);
+  }
+
   // ── My following lists ────────────────────────────────────────────────────────
 
   async getFollowingAuthors(userId: string) {

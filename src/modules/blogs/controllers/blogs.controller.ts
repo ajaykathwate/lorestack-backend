@@ -56,6 +56,13 @@ export class BlogsController {
     return this.blogsService.getMyStats(user.sub);
   }
 
+  @Get('me/:slug')
+  @ApiBearerAuth()
+  @ApiOkResponse({ type: BlogEntity, description: "Returns a single blog by slug — any status — if it belongs to the authenticated user. Includes full body, seoTitleOverride, seoDescOverride." })
+  myBlogBySlug(@Param('slug') slug: string, @CurrentUser() user: JwtUser): Promise<BlogEntity> {
+    return this.blogsService.findMyBlogBySlug(slug, user.sub);
+  }
+
   @Get(':slug')
   @Public()
   @ApiOkResponse({ type: BlogEntity, description: 'Returns a published blog by slug.' })

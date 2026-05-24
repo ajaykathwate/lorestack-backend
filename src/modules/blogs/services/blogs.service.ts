@@ -87,6 +87,14 @@ export class BlogsService {
     return toBlogEntity(blog);
   }
 
+  async findMyBlogBySlug(slug: string, userId: string): Promise<BlogEntity> {
+    const blog = await this.repo.findBySlug(slug);
+    if (!blog || blog.authorId !== userId) {
+      throw new NotFoundException('Blog not found.');
+    }
+    return toBlogEntity(blog);
+  }
+
   async findMyBlogs(
     userId: string,
     page = 1,
