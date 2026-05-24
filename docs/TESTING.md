@@ -2031,11 +2031,17 @@ Authorization: Bearer {{access_token}}
     "data": [
       {
         "id": "uuid",
-        "type": "follow",
-        "message": "Someone followed you.",
+        "type": "author_followed",
+        "title": "New follower",
+        "message": "Jane Doe started following you.",
         "isRead": false,
-        "metadata": null,
-        "createdAt": "2026-05-21T..."
+        "actorId": "uuid",
+        "entityId": "uuid",
+        "entityType": "author",
+        "metadata": {
+          "actor": { "userId": "uuid", "displayName": "Jane Doe", "username": "jane-doe", "avatarUrl": null }
+        },
+        "createdAt": "2026-05-24T..."
       }
     ],
     "meta": { "page": 1, "limit": 20, "total": 3, "hasNextPage": false }
@@ -2090,6 +2096,79 @@ Authorization: Bearer {{access_token}}
 ```
 
 **Expected: 200** — `{ "data": { "message": "All notifications marked as read." } }`
+
+---
+
+### 58a. Delete a Single Notification
+
+**`DELETE {{base_url}}/notifications/:id`**
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 204 No Content**
+
+**Error cases**
+
+| Scenario | Expected |
+| -------- | -------- |
+| Notification not found or belongs to different user | `404 Not Found` |
+
+---
+
+### 58b. Delete All Notifications
+
+**`DELETE {{base_url}}/notifications`**
+
+**Headers**
+
+```
+Authorization: Bearer {{access_token}}
+```
+
+**Expected: 200** — `{ "data": { "deleted": 5 } }`
+
+---
+
+### 58c. Real-time Notifications (WebSocket)
+
+Connect with **Socket.IO** to the `/notifications` namespace:
+
+```
+ws://localhost:3000/notifications
+```
+
+**Auth** — pass JWT in the `auth` object (preferred) or `Authorization` header:
+
+```javascript
+const socket = io('http://localhost:3000/notifications', {
+  auth: { token: '<access_token>' },
+});
+```
+
+**Listening for events**
+
+```javascript
+socket.on('notification', (payload) => {
+  console.log(payload);
+  // { type, title, message, metadata, actorId?, entityId? }
+});
+```
+
+**Testing manually**
+
+1. Connect the socket with a valid JWT.
+2. In another session, follow the authenticated user as an author.
+3. Observe the `notification` event arrives on the socket with `type: "author_followed"`.
+
+| Scenario | Behaviour |
+| -------- | --------- |
+| Valid JWT | Connection accepted; socket joins `user:{userId}` room |
+| Invalid / missing JWT | Connection refused immediately (`disconnect` fires) |
+| User offline | Notification is still persisted in DB and visible on next `GET /notifications` |
 
 ---
 

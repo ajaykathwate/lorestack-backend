@@ -1,5 +1,5 @@
-import { Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiNoContentResponse, ApiOkResponse, ApiQuery, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser } from '@common/decorators/current-user.decorator';
 import { JwtUser } from '@modules/auth/types/jwt-user.type';
@@ -41,5 +41,19 @@ export class NotificationsController {
   @ApiOkResponse({ description: 'Marks a single notification as read.' })
   markRead(@Param('id') id: string, @CurrentUser() user: JwtUser) {
     return this.notificationsService.markRead(user.sub, id);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiNoContentResponse({ description: 'Deletes a single notification.' })
+  deleteOne(@Param('id') id: string, @CurrentUser() user: JwtUser) {
+    return this.notificationsService.deleteOne(user.sub, id);
+  }
+
+  @Delete()
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({ description: 'Deletes all notifications for the authenticated user.' })
+  deleteAll(@CurrentUser() user: JwtUser) {
+    return this.notificationsService.deleteAll(user.sub);
   }
 }

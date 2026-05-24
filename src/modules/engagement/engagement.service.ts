@@ -1,9 +1,12 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { BlogStatus } from '@prisma/client';
 
 import { PrismaService } from '@database/prisma/prisma.service';
 import { BlogsRepository } from '@modules/blogs/repositories/blogs.repository';
 import { toBlogSummaryEntity } from '@modules/blogs/mappers/blog.mappers';
+import { NOTIFICATION_EVENTS } from '@modules/notifications/events/notification-event-names';
+import { BlogLikedEvent, BlogSavedEvent, BlogSharedEvent } from '@modules/notifications/events/notification.events';
 
 import { ReadProgressDto } from './dto/read-progress.dto';
 import { ShareBlogDto } from './dto/share-blog.dto';
@@ -13,6 +16,7 @@ export class EngagementService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly blogsRepo: BlogsRepository,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   // ── Likes ─────────────────────────────────────────────────────────────────────
@@ -27,6 +31,27 @@ export class EngagementService {
 
     await this.prisma.blogLike.create({ data: { userId, blogId: blog.id } });
     const likesCount = await this.prisma.blogLike.count({ where: { blogId: blog.id } });
+
+    if (blog.authorId !== userId) {
+      const actorProfile = await this.prisma.authorProfile.findUnique({
+        where: { userId },
+        select: { displayName: true, username: true, avatarUrl: true },
+      });
+      if (actorProfile) {
+        const event = Object.assign(new BlogLikedEvent(), {
+          actorUserId: userId,
+          actorDisplayName: actorProfile.displayName,
+          actorUsername: actorProfile.username,
+          actorAvatarUrl: actorProfile.avatarUrl,
+          blogId: blog.id,
+          blogSlug: blog.slug,
+          blogTitle: blog.title,
+          authorUserId: blog.authorId,
+        });
+        setImmediate(() => this.eventEmitter.emit(NOTIFICATION_EVENTS.BLOG_LIKED, event));
+      }
+    }
+
     return { likesCount };
   }
 
@@ -57,6 +82,27 @@ export class EngagementService {
 
     await this.prisma.blogSave.create({ data: { userId, blogId: blog.id } });
     const savesCount = await this.prisma.blogSave.count({ where: { blogId: blog.id } });
+
+    if (blog.authorId !== userId) {
+      const actorProfile = await this.prisma.authorProfile.findUnique({
+        where: { userId },
+        select: { displayName: true, username: true, avatarUrl: true },
+      });
+      if (actorProfile) {
+        const event = Object.assign(new BlogSavedEvent(), {
+          actorUserId: userId,
+          actorDisplayName: actorProfile.displayName,
+          actorUsername: actorProfile.username,
+          actorAvatarUrl: actorProfile.avatarUrl,
+          blogId: blog.id,
+          blogSlug: blog.slug,
+          blogTitle: blog.title,
+          authorUserId: blog.authorId,
+        });
+        setImmediate(() => this.eventEmitter.emit(NOTIFICATION_EVENTS.BLOG_SAVED, event));
+      }
+    }
+
     return { savesCount };
   }
 
@@ -89,6 +135,28 @@ export class EngagementService {
     });
 
     const sharesCount = await this.prisma.blogShare.count({ where: { blogId: blog.id } });
+
+    if (userId && blog.authorId !== userId) {
+      const actorProfile = await this.prisma.authorProfile.findUnique({
+        where: { userId },
+        select: { displayName: true, username: true, avatarUrl: true },
+      });
+      if (actorProfile) {
+        const event = Object.assign(new BlogSharedEvent(), {
+          actorUserId: userId,
+          actorDisplayName: actorProfile.displayName,
+          actorUsername: actorProfile.username,
+          actorAvatarUrl: actorProfile.avatarUrl,
+          blogId: blog.id,
+          blogSlug: blog.slug,
+          blogTitle: blog.title,
+          authorUserId: blog.authorId,
+          channel: dto.channel ?? null,
+        });
+        setImmediate(() => this.eventEmitter.emit(NOTIFICATION_EVENTS.BLOG_SHARED, event));
+      }
+    }
+
     return { sharesCount };
   }
 

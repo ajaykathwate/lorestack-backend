@@ -5,6 +5,7 @@ import { BlogStatus } from '@prisma/client';
 import { TagsRepository } from '@modules/tags/repositories/tags.repository';
 
 import { BlogsRepository } from '../repositories/blogs.repository';
+import { BlogsService } from './blogs.service';
 
 @Injectable()
 export class BlogSchedulerService {
@@ -13,6 +14,7 @@ export class BlogSchedulerService {
   constructor(
     private readonly blogsRepo: BlogsRepository,
     private readonly tagsRepo: TagsRepository,
+    private readonly blogsService: BlogsService,
   ) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -32,6 +34,8 @@ export class BlogSchedulerService {
         });
 
         await this.tagsRepo.incrementBlogCountForMany(blog.tags.map((bt) => bt.tagId));
+
+        setImmediate(() => this.blogsService.emitBlogPublished(blog));
 
         this.logger.log(`Scheduler: published blog "${blog.slug}"`);
       } catch (error) {

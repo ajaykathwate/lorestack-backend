@@ -126,7 +126,8 @@ model User {
   blogSaves          BlogSave[]
   blogShares         BlogShare[]
   readSessions       BlogReadSession[]
-  notifications      Notification[]
+  notifications         Notification[] @relation("notificationRecipient")
+  notificationsAsActor  Notification[] @relation("notificationActor")
 
   @@map("users")
 }
@@ -549,22 +550,41 @@ model BlogEngagementCounters {
 // ─── Notifications ────────────────────────────────────────────────────────────
 
 enum NotificationType {
+  // legacy values — kept for backward compat, not emitted by new code
   follow
   company_invite
   blog_published
+
+  // specific types used by new event-driven system
+  author_followed
+  company_followed
+  blog_liked
+  blog_saved
+  blog_shared
+  blog_published_fan_out
+  company_invite_received
+  company_invite_accepted
+  company_invite_declined
+  company_milestone
 }
 
 model Notification {
   id         String           @id @default(uuid()) @db.Uuid
   userId     String           @db.Uuid
   type       NotificationType
+  title      String           @db.VarChar(100)
   message    String           @db.VarChar(300)
   isRead     Boolean          @default(false)
   metadata   Json?
+  actorId    String?          @db.Uuid
+  entityId   String?          @db.Uuid
+  entityType EntityType?
   createdAt  DateTime         @default(now())
-  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId, isRead], name: "idx_notifications_user_read")
+  user  User  @relation("notificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  actor User? @relation("notificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([userId, isRead],   name: "idx_notifications_user_read")
   @@index([userId, createdAt], name: "idx_notifications_user_date")
   @@map("notifications")
 }

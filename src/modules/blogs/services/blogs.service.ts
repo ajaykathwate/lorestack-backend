@@ -6,6 +6,7 @@ import {
   NotFoundException,
   forwardRef,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { BlogStatus } from '@prisma/client';
 
 import { permissionChecker } from '@common/permissions/permission-checker';
@@ -15,6 +16,8 @@ import { JwtUser } from '@modules/auth/types/jwt-user.type';
 import { CompaniesRepository } from '@modules/companies/repositories/companies.repository';
 import { TagsRepository } from '@modules/tags/repositories/tags.repository';
 import { TagsService } from '@modules/tags/services/tags.service';
+import { NOTIFICATION_EVENTS } from '@modules/notifications/events/notification-event-names';
+import { BlogPublishedEvent } from '@modules/notifications/events/notification.events';
 
 import { PaginatedResponse } from '@common/dto/paginated-response.dto';
 
@@ -34,6 +37,7 @@ export class BlogsService {
     private readonly tagsRepo: TagsRepository,
     @Inject(forwardRef(() => CompaniesRepository))
     private readonly companiesRepo: CompaniesRepository,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   // ── CRUD ──────────────────────────────────────────────────────────────────────
@@ -185,6 +189,8 @@ export class BlogsService {
 
     await this.tagsRepo.incrementBlogCountForMany(updated.tags.map((bt) => bt.tagId));
 
+    setImmediate(() => this.emitBlogPublished(updated));
+
     return toBlogEntity(updated);
   }
 
@@ -302,5 +308,29 @@ export class BlogsService {
   private computeReadingTime(body: string): number {
     const wordCount = body.trim().split(/\s+/).filter(Boolean).length;
     return Math.max(1, Math.ceil(wordCount / 200));
+  }
+
+  emitBlogPublished(blog: import('../repositories/blogs.repository').BlogWithTags): void {
+    const authorProfile = blog.author?.authorProfile;
+    if (!authorProfile) return;
+
+    const event = Object.assign(new BlogPublishedEvent(), {
+      blogId: blog.id,
+      blogSlug: blog.slug,
+      blogTitle: blog.title,
+      blogSummary: blog.summary ?? null,
+      blogCoverImageUrl: blog.coverImageUrl ?? null,
+      articleType: blog.articleType,
+      authorUserId: blog.authorId,
+      authorProfileId: authorProfile.id,
+      authorDisplayName: authorProfile.displayName,
+      authorUsername: authorProfile.username,
+      authorAvatarUrl: authorProfile.avatarUrl ?? null,
+      companyId: blog.company?.id ?? null,
+      companyName: blog.company?.name ?? null,
+      companyHandle: blog.company?.handle ?? null,
+      companyLogoUrl: blog.company?.logoUrl ?? null,
+    });
+    this.eventEmitter.emit(NOTIFICATION_EVENTS.BLOG_PUBLISHED, event);
   }
 }

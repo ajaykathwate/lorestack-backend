@@ -1,10 +1,16 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { PrismaService } from '@database/prisma/prisma.service';
+import { NOTIFICATION_EVENTS } from '@modules/notifications/events/notification-event-names';
+import { AuthorFollowedEvent, CompanyFollowedEvent } from '@modules/notifications/events/notification.events';
 
 @Injectable()
 export class FollowsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   // ── Author follows ────────────────────────────────────────────────────────────
 
@@ -21,8 +27,27 @@ export class FollowsService {
     });
     if (existing) throw new ConflictException('Already following this author.');
 
-    await this.prisma.authorFollow.create({ data: { followerId, authorProfileId } });
+    const [, followerProfile] = await Promise.all([
+      this.prisma.authorFollow.create({ data: { followerId, authorProfileId } }),
+      this.prisma.authorProfile.findUnique({
+        where: { userId: followerId },
+        select: { displayName: true, username: true, avatarUrl: true },
+      }),
+    ]);
     const count = await this.prisma.authorFollow.count({ where: { authorProfileId } });
+
+    if (followerProfile) {
+      const event = Object.assign(new AuthorFollowedEvent(), {
+        followerId,
+        authorProfileId,
+        followerDisplayName: followerProfile.displayName,
+        followerUsername: followerProfile.username,
+        followerAvatarUrl: followerProfile.avatarUrl,
+        recipientUserId: profile.userId,
+      });
+      setImmediate(() => this.eventEmitter.emit(NOTIFICATION_EVENTS.AUTHOR_FOLLOWED, event));
+    }
+
     return { followersCount: count };
   }
 
@@ -61,8 +86,36 @@ export class FollowsService {
     });
     if (existing) throw new ConflictException('Already following this company.');
 
-    await this.prisma.companyFollow.create({ data: { followerId, companyId } });
+    const [, followerProfile, ownerRows] = await Promise.all([
+      this.prisma.companyFollow.create({ data: { followerId, companyId } }),
+      this.prisma.authorProfile.findUnique({
+        where: { userId: followerId },
+        select: { displayName: true, username: true, avatarUrl: true },
+      }),
+      this.prisma.companyMembership.findMany({
+        where: { companyId, role: 'owner' },
+        select: { userId: true },
+      }),
+    ]);
     const count = await this.prisma.companyFollow.count({ where: { companyId } });
+
+    if (followerProfile) {
+      const ownerUserIds = ownerRows.map((r) => r.userId).filter((id) => id !== followerId);
+      if (ownerUserIds.length > 0) {
+        const event = Object.assign(new CompanyFollowedEvent(), {
+          followerId,
+          followerDisplayName: followerProfile.displayName,
+          followerUsername: followerProfile.username,
+          followerAvatarUrl: followerProfile.avatarUrl,
+          companyId,
+          companyName: company.name,
+          companyHandle: company.handle,
+          ownerUserIds,
+        });
+        setImmediate(() => this.eventEmitter.emit(NOTIFICATION_EVENTS.COMPANY_FOLLOWED, event));
+      }
+    }
+
     return { followersCount: count };
   }
 

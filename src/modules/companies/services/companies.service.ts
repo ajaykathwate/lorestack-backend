@@ -8,6 +8,7 @@ import {
   NotFoundException,
   forwardRef,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CompanyRole, InviteStatus } from '@prisma/client';
 import { randomBytes } from 'crypto';
 
@@ -19,6 +20,13 @@ import { BlogSummaryEntity } from '@modules/blogs/entities/blog-summary.entity';
 import { BlogsRepository, SortOrder } from '@modules/blogs/repositories/blogs.repository';
 import { toBlogSummaryEntity } from '@modules/blogs/mappers/blog.mappers';
 import { MailService } from '@modules/mail/mail.service';
+import { NOTIFICATION_EVENTS } from '@modules/notifications/events/notification-event-names';
+import {
+  CompanyInviteReceivedEvent,
+  CompanyInviteRespondedEvent,
+  CompanyMilestoneEvent,
+} from '@modules/notifications/events/notification.events';
+import { PrismaService } from '@database/prisma/prisma.service';
 
 import { CreateCompanyDto } from '../dto/create-company.dto';
 import { CreateMilestoneDto } from '../dto/create-milestone.dto';
@@ -38,6 +46,8 @@ export class CompaniesService {
     @Inject(forwardRef(() => BlogsRepository))
     private readonly blogsRepo: BlogsRepository,
     private readonly mailService: MailService,
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   // ── Company CRUD ──────────────────────────────────────────────────────────────
@@ -224,6 +234,28 @@ export class CompaniesService {
     this.mailService.sendCompanyInviteEmail(dto.email, company.name, token).catch((err) =>
       this.logger.warn(`Invite email failed: ${err instanceof Error ? err.message : String(err)}`),
     );
+
+    setImmediate(async () => {
+      const inviterProfile = await this.prisma.authorProfile.findUnique({
+        where: { userId: requester.sub },
+        select: { displayName: true, username: true, avatarUrl: true },
+      });
+      if (!inviterProfile) return;
+      const event = Object.assign(new CompanyInviteReceivedEvent(), {
+        inviteToken: token,
+        inviteExpiresAt: expiresAt,
+        companyId: company.id,
+        companyName: company.name,
+        companyHandle: company.handle,
+        companyLogoUrl: company.logoUrl ?? null,
+        invitedByUserId: requester.sub,
+        invitedByDisplayName: inviterProfile.displayName,
+        invitedByUsername: inviterProfile.username,
+        invitedByAvatarUrl: inviterProfile.avatarUrl ?? null,
+        invitedEmail: dto.email,
+      });
+      this.eventEmitter.emit(NOTIFICATION_EVENTS.COMPANY_INVITE_RECEIVED, event);
+    });
   }
 
   async listInvites(handle: string, requester: JwtUser) {
@@ -301,6 +333,34 @@ export class CompaniesService {
     await this.repo.updateInviteStatus(safeInvite.id, InviteStatus.accepted, new Date());
     await this.repo.createMembership(safeInvite.companyId, requester.sub, CompanyRole.author);
 
+    setImmediate(async () => {
+      const [actorProfile, ownerRows] = await Promise.all([
+        this.prisma.authorProfile.findUnique({
+          where: { userId: requester.sub },
+          select: { displayName: true, username: true, avatarUrl: true },
+        }),
+        this.prisma.companyMembership.findMany({
+          where: { companyId: safeInvite.companyId, role: 'owner' },
+          select: { userId: true },
+        }),
+      ]);
+      if (!actorProfile) return;
+      const ownerUserIds = ownerRows.map((r) => r.userId).filter((id) => id !== requester.sub);
+      if (ownerUserIds.length === 0) return;
+      const event = Object.assign(new CompanyInviteRespondedEvent(), {
+        accepted: true,
+        actorUserId: requester.sub,
+        actorDisplayName: actorProfile.displayName,
+        actorUsername: actorProfile.username,
+        actorAvatarUrl: actorProfile.avatarUrl ?? null,
+        companyId: safeInvite.companyId,
+        companyName: safeInvite.company.name,
+        companyHandle: safeInvite.company.handle,
+        ownerUserIds,
+      });
+      this.eventEmitter.emit(NOTIFICATION_EVENTS.COMPANY_INVITE_RESPONDED, event);
+    });
+
     return new CompanyEntity(safeInvite.company);
   }
 
@@ -311,6 +371,34 @@ export class CompaniesService {
     const safeInvite = invite!;
 
     await this.repo.updateInviteStatus(safeInvite.id, InviteStatus.declined);
+
+    setImmediate(async () => {
+      const [actorProfile, ownerRows] = await Promise.all([
+        this.prisma.authorProfile.findUnique({
+          where: { userId: requester.sub },
+          select: { displayName: true, username: true, avatarUrl: true },
+        }),
+        this.prisma.companyMembership.findMany({
+          where: { companyId: safeInvite.companyId, role: 'owner' },
+          select: { userId: true },
+        }),
+      ]);
+      if (!actorProfile) return;
+      const ownerUserIds = ownerRows.map((r) => r.userId).filter((id) => id !== requester.sub);
+      if (ownerUserIds.length === 0) return;
+      const event = Object.assign(new CompanyInviteRespondedEvent(), {
+        accepted: false,
+        actorUserId: requester.sub,
+        actorDisplayName: actorProfile.displayName,
+        actorUsername: actorProfile.username,
+        actorAvatarUrl: actorProfile.avatarUrl ?? null,
+        companyId: safeInvite.companyId,
+        companyName: safeInvite.company.name,
+        companyHandle: safeInvite.company.handle,
+        ownerUserIds,
+      });
+      this.eventEmitter.emit(NOTIFICATION_EVENTS.COMPANY_INVITE_RESPONDED, event);
+    });
   }
 
   // ── Milestones ────────────────────────────────────────────────────────────────
@@ -338,6 +426,21 @@ export class CompaniesService {
       description: dto.description,
       impactMetric: dto.impactMetric,
       milestoneDate: dto.milestoneDate,
+    });
+
+    setImmediate(() => {
+      const event = Object.assign(new CompanyMilestoneEvent(), {
+        milestoneId: milestone.id,
+        milestoneType: milestone.type,
+        milestoneHeadline: milestone.headline,
+        milestoneImpactMetric: milestone.impactMetric ?? null,
+        milestoneDateStr: milestone.milestoneDate.toISOString(),
+        companyId: company.id,
+        companyName: company.name,
+        companyHandle: company.handle,
+        companyLogoUrl: company.logoUrl ?? null,
+      });
+      this.eventEmitter.emit(NOTIFICATION_EVENTS.COMPANY_MILESTONE, event);
     });
 
     return new CompanyMilestoneEntity(milestone);

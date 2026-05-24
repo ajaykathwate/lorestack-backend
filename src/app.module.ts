@@ -1,6 +1,7 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
@@ -48,6 +49,7 @@ import { EngagementModule } from './modules/engagement/engagement.module';
               },
       },
     }),
+    EventEmitterModule.forRoot({ wildcard: false, delimiter: '.', global: true }),
     ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([
       {
