@@ -6,6 +6,7 @@ import {
   IsEnum,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   MinLength,
 } from 'class-validator';
@@ -27,6 +28,11 @@ export class UpdateBlogDto {
   @IsOptional()
   @IsEnum(ArticleType)
   articleType?: ArticleType;
+
+  @ApiPropertyOptional({ format: 'uuid', description: 'Associate with a company (must be a member)' })
+  @IsOptional()
+  @IsUUID()
+  companyId?: string | null;
 
   @ApiPropertyOptional({ example: 'A story about scaling our SaaS from zero to 100k.', maxLength: 300 })
   @IsOptional()

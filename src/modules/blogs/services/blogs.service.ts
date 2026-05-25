@@ -125,6 +125,10 @@ export class BlogsService {
   async update(slug: string, dto: UpdateBlogDto, requester: JwtUser): Promise<BlogEntity> {
     const blog = await this.getAndAuthorize(slug, requester, 'edit');
 
+    if (dto.companyId) {
+      await this.assertCompanyMembership(dto.companyId, requester);
+    }
+
     let tagIds: string[] | undefined;
     if (dto.tags !== undefined) {
       const resolvedTags = dto.tags.length
@@ -146,6 +150,11 @@ export class BlogsService {
         ...(dto.coverImageUrl !== undefined ? { coverImageUrl: dto.coverImageUrl } : {}),
         ...(dto.seoTitleOverride !== undefined ? { seoTitleOverride: dto.seoTitleOverride } : {}),
         ...(dto.seoDescOverride !== undefined ? { seoDescOverride: dto.seoDescOverride } : {}),
+        ...('companyId' in dto
+          ? dto.companyId
+            ? { company: { connect: { id: dto.companyId } } }
+            : { company: { disconnect: true } }
+          : {}),
       });
       return toBlogEntity(updated);
     } catch (error) {
