@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { BlogStatus } from '@prisma/client';
 
@@ -23,6 +23,10 @@ export class EngagementService {
 
   async likeBlog(slug: string, userId: string) {
     const blog = await this.findPublishedBlog(slug);
+
+    if (blog.authorId === userId) {
+      throw new BadRequestException('You cannot like your own article.');
+    }
 
     const existing = await this.prisma.blogLike.findUnique({
       where: { uq_blog_likes_user_blog: { userId, blogId: blog.id } },
@@ -74,6 +78,10 @@ export class EngagementService {
 
   async saveBlog(slug: string, userId: string) {
     const blog = await this.findPublishedBlog(slug);
+
+    if (blog.authorId === userId) {
+      throw new BadRequestException('You cannot save your own article.');
+    }
 
     const existing = await this.prisma.blogSave.findUnique({
       where: { uq_blog_saves_user_blog: { userId, blogId: blog.id } },

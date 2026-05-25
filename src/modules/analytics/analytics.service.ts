@@ -10,6 +10,7 @@ export interface RecordViewOptions {
   source?: string;
   referrer?: string;
   device?: string;
+  viewerId?: string;
 }
 
 @Injectable()
@@ -24,8 +25,33 @@ export class AnalyticsService {
       throw new NotFoundException('Blog not found or not published.');
     }
 
+    // Authors do not inflate their own view counts.
+    if (opts.viewerId && opts.viewerId === blog.authorId) {
+      return { recorded: false };
+    }
+
     const ip = req.ip ?? req.socket?.remoteAddress ?? '';
     const ipHash = createHash('sha256').update(ip).digest('hex').substring(0, 64);
+
+    // Session-based dedup: one view per (blog, session).
+    if (opts.sessionId) {
+      const existing = await this.prisma.blogView.findFirst({
+        where: { blogId: blog.id, sessionId: opts.sessionId },
+        select: { id: true },
+      });
+      if (existing) return { recorded: false };
+    } else {
+      // No sessionId — deduplicate by IP within a 30-minute window.
+      const recentView = await this.prisma.blogView.findFirst({
+        where: {
+          blogId: blog.id,
+          ipHash,
+          viewedAt: { gte: new Date(Date.now() - 30 * 60 * 1000) },
+        },
+        select: { id: true },
+      });
+      if (recentView) return { recorded: false };
+    }
 
     await this.prisma.blogView.create({
       data: {
@@ -35,6 +61,7 @@ export class AnalyticsService {
         source: opts.source,
         referrer: opts.referrer,
         device: opts.device,
+        ...(opts.viewerId ? { viewerId: opts.viewerId } : {}),
       },
     });
 

@@ -30,7 +30,8 @@ export class AnalyticsController {
     @Req() req: Request,
     @Body() dto: RecordViewDto,
   ) {
-    return this.analyticsService.recordBlogView(slug, req, dto);
+    const user = (req as any).user as JwtUser | undefined;
+    return this.analyticsService.recordBlogView(slug, req, { ...dto, viewerId: user?.sub });
   }
 
   @Get('blogs/:slug/analytics')

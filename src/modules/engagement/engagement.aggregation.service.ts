@@ -10,7 +10,7 @@ export class EngagementAggregationService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  // Runs every 15 minutes to recompute engagement counters and trending scores.
+  // Runs every 10 minutes to recompute engagement counters and trending scores.
   @Cron(CronExpression.EVERY_10_MINUTES)
   async aggregateEngagementCounters() {
     this.logger.log('Aggregating engagement counters...');
@@ -73,14 +73,16 @@ export class EngagementAggregationService {
       const sessionData = sessionMap.get(blog.id);
       const avgCompletionRate = sessionData && sessionData.count > 0 ? sessionData.sum / sessionData.count : 0;
 
-      // Time-decayed trending score: strong signals (saves, shares) weighted higher than raw views.
+      // Time-decayed trending score. Weights reflect intent strength:
+      //   shares (10) > saves (8) > likes (6) > unique views (4) > completion rate
       // TimeDecay = (hoursSincePublished + 2)^1.5 — prevents old articles from dominating.
       const hoursSincePublished = blog.publishedAt
         ? (now - blog.publishedAt.getTime()) / (1000 * 60 * 60)
         : 0;
       const timeDecay = Math.pow(hoursSincePublished + 2, 1.5);
       const trendingScore =
-        (4 * uniqueViews + 8 * saves + 10 * shares + 3 * avgCompletionRate * 100) / timeDecay;
+        (4 * uniqueViews + 6 * likes + 8 * saves + 10 * shares + 3 * avgCompletionRate * 100) /
+        timeDecay;
 
       return this.prisma.blogEngagementCounters.upsert({
         where: { blogId: blog.id },
