@@ -12,7 +12,7 @@ FROM base AS deps
 COPY package.json pnpm-lock.yaml* ./
 COPY scripts ./scripts
 COPY prisma ./prisma
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile
 
 FROM deps AS builder
 COPY --from=deps /app/node_modules ./node_modules
