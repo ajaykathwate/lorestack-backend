@@ -63,6 +63,26 @@ export class EngagementAggregationService {
 
     const now = Date.now();
 
+    type ExistingCounter = { blogId: string; totalViews: number; uniqueViews: number; likes: number; saves: number; shares: number; trendingScore: number };
+    const existingCounters: ExistingCounter[] = await this.prisma.blogEngagementCounters.findMany({
+      where: { blogId: { in: publishedBlogs.map((b) => b.id) } },
+      select: { blogId: true, totalViews: true, uniqueViews: true, likes: true, saves: true, shares: true, trendingScore: true },
+    });
+    const existingMap = new Map<string, ExistingCounter>();
+    for (const c of existingCounters) existingMap.set(c.blogId, c);
+
+    type NewCounter = {
+      blogId: string;
+      totalViews: number;
+      uniqueViews: number;
+      likes: number;
+      saves: number;
+      shares: number;
+      avgCompletionRate: number;
+      trendingScore: number;
+    };
+    const newCounters: NewCounter[] = [];
+
     const upserts = publishedBlogs.map((blog) => {
       const totalViews = totalViewMap.get(blog.id) ?? 0;
       const uniqueViews = uniqueViewMap.get(blog.id) ?? 0;
@@ -84,31 +104,66 @@ export class EngagementAggregationService {
         (4 * uniqueViews + 6 * likes + 8 * saves + 10 * shares + 3 * avgCompletionRate * 100) /
         timeDecay;
 
+      newCounters.push({ blogId: blog.id, totalViews, uniqueViews, likes, saves, shares, avgCompletionRate, trendingScore });
+
       return this.prisma.blogEngagementCounters.upsert({
         where: { blogId: blog.id },
-        create: {
-          blogId: blog.id,
-          totalViews,
-          uniqueViews,
-          likes,
-          saves,
-          shares,
-          avgCompletionRate,
-          trendingScore,
-        },
-        update: {
-          totalViews,
-          uniqueViews,
-          likes,
-          saves,
-          shares,
-          avgCompletionRate,
-          trendingScore,
-        },
+        create: { blogId: blog.id, totalViews, uniqueViews, likes, saves, shares, avgCompletionRate, trendingScore },
+        update: { totalViews, uniqueViews, likes, saves, shares, avgCompletionRate, trendingScore },
       });
     });
 
     await this.prisma.$transaction(upserts);
-    this.logger.log(`Aggregated engagement counters for ${publishedBlogs.length} blogs.`);
+
+    // Compute aggregate deltas across all blogs
+    let deltaViews = 0, deltaLikes = 0, deltaSaves = 0, deltaShares = 0;
+    let newBlogs = 0;
+
+    for (const n of newCounters) {
+      const prev = existingMap.get(n.blogId);
+      if (!prev) {
+        newBlogs++;
+        deltaViews += n.totalViews;
+        deltaLikes += n.likes;
+        deltaSaves += n.saves;
+        deltaShares += n.shares;
+      } else {
+        deltaViews += n.totalViews - prev.totalViews;
+        deltaLikes += n.likes - prev.likes;
+        deltaSaves += n.saves - prev.saves;
+        deltaShares += n.shares - prev.shares;
+      }
+    }
+
+    const prevTotals = newCounters.reduce(
+      (acc, n) => {
+        const prev = existingMap.get(n.blogId);
+        acc.views += prev?.totalViews ?? 0;
+        acc.likes += prev?.likes ?? 0;
+        acc.saves += prev?.saves ?? 0;
+        acc.shares += prev?.shares ?? 0;
+        return acc;
+      },
+      { views: 0, likes: 0, saves: 0, shares: 0 },
+    );
+
+    const newTotals = newCounters.reduce(
+      (acc, n) => {
+        acc.views += n.totalViews;
+        acc.likes += n.likes;
+        acc.saves += n.saves;
+        acc.shares += n.shares;
+        return acc;
+      },
+      { views: 0, likes: 0, saves: 0, shares: 0 },
+    );
+
+    this.logger.log(
+      `Engagement aggregation complete — ${publishedBlogs.length} blogs (${newBlogs} new)` +
+      ` | views: ${prevTotals.views} → ${newTotals.views} (+${deltaViews})` +
+      ` | likes: ${prevTotals.likes} → ${newTotals.likes} (+${deltaLikes})` +
+      ` | saves: ${prevTotals.saves} → ${newTotals.saves} (+${deltaSaves})` +
+      ` | shares: ${prevTotals.shares} → ${newTotals.shares} (+${deltaShares})`,
+    );
   }
 }
