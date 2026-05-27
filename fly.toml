@@ -1,0 +1,44 @@
+# fly.toml — Lorestack Backend
+# Docs: https://fly.io/docs/reference/configuration/
+
+app = "lorestack-backend"
+primary_region = "sin" # Singapore (bom/Mumbai had no volume capacity)
+
+[build]
+  # Uses the Dockerfile at the repo root automatically
+
+[deploy]
+  # Runs BEFORE new machines start serving traffic.
+  # If this fails → deploy is aborted, old version keeps running.
+  # This is where migrations go — safe, atomic, zero-downtime.
+  release_command = "pnpm prisma migrate deploy"
+
+[env]
+  # Non-sensitive config only — secrets go via `fly secrets set`
+  NODE_ENV = "production"
+  PORT = "3000"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+
+  # Keep at least 1 machine always running (required for WebSocket connections)
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  # Health check — Fly uses this to decide if a deploy succeeded
+  # Your health endpoint checks the DB too (SELECT 1) — perfect
+  [[http_service.checks]]
+    grace_period = "15s"   # Give app time to boot before checking
+    interval = "30s"
+    method = "GET"
+    path = "/api/v1/health"
+    protocol = "http"
+    timeout = "5s"
+
+[[vm]]
+  # Start here — upgrade to "shared-cpu-2x" or "performance-1x" when needed
+  size = "shared-cpu-1x"
+  memory = "512mb"
